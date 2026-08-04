@@ -9,6 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  cupertino_icons: ^1.0.2
+  image_picker: ^1.0.4          # For picking the image
+  shared_preferences: ^2.2.2    # For saving text data
+  path_provider: ^2.1.2         # For saving the image file
 
 dev_dependencies:
   flutter_test:

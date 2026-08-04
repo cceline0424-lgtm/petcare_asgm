@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:petcare_asgm/UserProfile/user_profile_page.dart';
 
 void main() {
   runApp(const PetHealthCareApp());
@@ -10,19 +11,23 @@ class PetHealthCareApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Pet Health Care', // Updated App Name
+      title: 'Pet Health Care',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.brown,
         scaffoldBackgroundColor: Colors.white,
       ),
-      home: const MainNavigationScreen(),
+      // For testing without the login page, we pass a dummy username here.
+      // Once you build the Login Page, it will pass the real username instead.
+      home: const MainNavigationScreen(username: 'Test User'),
     );
   }
 }
 
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+  final String username; // Added to accept the username from login
+
+  const MainNavigationScreen({super.key, required this.username});
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
@@ -31,33 +36,34 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 2; // Default to Home Page
 
-  final List<Widget> _pages = [
-    const Center(child: Text('Pet Adoption Page', style: TextStyle(fontSize: 24))),
-    const Center(child: Text('Vet Clinic Page', style: TextStyle(fontSize: 24))),
-    const Center(child: Text('Home Page', style: TextStyle(fontSize: 24))),
-    const Center(child: Text('Stray Map Page', style: TextStyle(fontSize: 24))),
-    const Center(child: Text('User Profile Page', style: TextStyle(fontSize: 24))),
-  ];
-
   @override
   Widget build(BuildContext context) {
     bool isHomeSelected = _currentIndex == 2;
 
+    // Moving _pages inside build() so we can pass widget.username to the profile page
+    final List<Widget> pages = [
+      const Center(child: Text('Pet Adoption Page', style: TextStyle(fontSize: 24))),
+      const Center(child: Text('Vet Clinic Page', style: TextStyle(fontSize: 24))),
+      const Center(child: Text('Home Page', style: TextStyle(fontSize: 24))),
+      const Center(child: Text('Stray Map Page', style: TextStyle(fontSize: 24))),
+      // The Profile Page is now injected with the username!
+      UserProfilePage(username: widget.username),
+    ];
+
     return Scaffold(
       // ==========================================
-      // REDESIGNED TOP BANNER (APP BAR)
+      // TOP BANNER (APP BAR)
       // ==========================================
       appBar: AppBar(
         backgroundColor: Colors.white,
-        elevation: 3, // Gives a modern, soft drop shadow instead of a hard line
-        shadowColor: Colors.brown.withOpacity(0.3), // Softens the shadow color
+        elevation: 3,
+        shadowColor: Colors.brown.withOpacity(0.3),
 
-        // 1. Stylized Left Icon (Leading)
         leading: Padding(
           padding: const EdgeInsets.all(8.0),
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.brown[100], // Soft background circle
+              color: Colors.brown[100],
               shape: BoxShape.circle,
             ),
             child: Icon(
@@ -67,20 +73,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             ),
           ),
         ),
-        titleSpacing: 0, // Pulls the title closer to the logo
+        titleSpacing: 0,
 
-        // 2. The Center Text (Title) - Updated Name
         title: Text(
           'Pet Health Care',
           style: TextStyle(
             color: Colors.brown[800],
             fontSize: 22,
-            fontWeight: FontWeight.w800, // Bolder, cleaner font weight
+            fontWeight: FontWeight.w800,
             letterSpacing: 0.5,
           ),
         ),
 
-        // 3. The Right Icon (Actions) - Added a functional notification bell
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
@@ -90,19 +94,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 color: Colors.brown[800],
                 size: 28,
               ),
-              onPressed: () {
-                // Future feature: Open notifications
-              },
+              onPressed: () {},
             ),
           ),
         ],
       ),
-      // ==========================================
-      // END OF APP BAR
-      // ==========================================
 
-      body: _pages[_currentIndex],
+      // Displays the current page based on bottom navigation
+      body: pages[_currentIndex],
 
+      // ==========================================
+      // BOTTOM NAVIGATION & FLOATING BUTTON
+      // ==========================================
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.brown[700],
         elevation: isHomeSelected ? 6 : 0,
