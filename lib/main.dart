@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 
 void main() {
-  runApp(const UPetApp());
+  runApp(const PetHealthCareApp());
 }
 
-class UPetApp extends StatelessWidget {
-  const UPetApp({super.key});
+class PetHealthCareApp extends StatelessWidget {
+  const PetHealthCareApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'U Pet',
+      title: 'Pet Health Care', // Updated App Name
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.brown,
@@ -41,16 +41,70 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Check if the home button is currently the active page
     bool isHomeSelected = _currentIndex == 2;
 
     return Scaffold(
+      // ==========================================
+      // REDESIGNED TOP BANNER (APP BAR)
+      // ==========================================
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 3, // Gives a modern, soft drop shadow instead of a hard line
+        shadowColor: Colors.brown.withOpacity(0.3), // Softens the shadow color
+
+        // 1. Stylized Left Icon (Leading)
+        leading: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.brown[100], // Soft background circle
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.pets,
+              color: Colors.brown[800],
+              size: 22,
+            ),
+          ),
+        ),
+        titleSpacing: 0, // Pulls the title closer to the logo
+
+        // 2. The Center Text (Title) - Updated Name
+        title: Text(
+          'Pet Health Care',
+          style: TextStyle(
+            color: Colors.brown[800],
+            fontSize: 22,
+            fontWeight: FontWeight.w800, // Bolder, cleaner font weight
+            letterSpacing: 0.5,
+          ),
+        ),
+
+        // 3. The Right Icon (Actions) - Added a functional notification bell
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: IconButton(
+              icon: Icon(
+                Icons.notifications_none_rounded,
+                color: Colors.brown[800],
+                size: 28,
+              ),
+              onPressed: () {
+                // Future feature: Open notifications
+              },
+            ),
+          ),
+        ],
+      ),
+      // ==========================================
+      // END OF APP BAR
+      // ==========================================
+
       body: _pages[_currentIndex],
 
-      // The Floating Action Button (Your Home Button)
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.brown[700],
-        // Adds a shadow when selected to make it "pop" out, flat when not selected
         elevation: isHomeSelected ? 6 : 0,
         shape: const CircleBorder(),
         onPressed: () {
@@ -60,9 +114,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         },
         child: Icon(
           Icons.home,
-          // Icon becomes larger when selected, smaller when clicking other pages
           size: isHomeSelected ? 38 : 30,
-          // Solid light white when selected, faded white when unselected
           color: isHomeSelected ? Colors.white : Colors.white54,
         ),
       ),
@@ -81,7 +133,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               IconButton(
                 icon: Icon(
                   Icons.pets,
-                  size: _currentIndex == 0 ? 32 : 28, // Slight size bump for obvious interaction
+                  size: _currentIndex == 0 ? 32 : 28,
                   color: _currentIndex == 0 ? Colors.white : Colors.white60,
                 ),
                 onPressed: () => setState(() => _currentIndex = 0),
