@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../main.dart';
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -151,14 +153,19 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Column(
               children: [
                 SwitchListTile(
-                  secondary: const Icon(Icons.dark_mode_outlined, color: Colors.brown),
-                  title: const Text('Dark Mode (Mock)'),
-                  value: _darkMode,
-                  activeColor: Colors.brown,
+                  secondary: const Icon(Icons.dark_mode_outlined),
+                  title: const Text('Dark Mode'), // Removed the "(Mock)" text!
+                  // Link the switch value directly to our global notifier
+                  value: isDarkModeNotifier.value,
+                  activeColor: Colors.brown[300], // Lighter brown so it's visible in dark mode
                   onChanged: (bool value) {
                     setState(() {
                       _darkMode = value;
                     });
+                    // Tell the whole app to change color instantly!
+                    isDarkModeNotifier.value = value;
+
+                    // Save the choice so it remembers next time you open the app
                     _saveSetting('dark_mode', value);
                   },
                 ),

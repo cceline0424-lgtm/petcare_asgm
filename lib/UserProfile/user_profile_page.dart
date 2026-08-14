@@ -1,14 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:petcare_asgm/UserProfile/setting.dart';
-// Data Persistence Packages
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:petcare_asgm/UserProfile/setting.dart';
 
-// ==========================================
-// USER PROFILE PAGE WIDGET (With SharedPreferences & Path Provider)
-// ==========================================
 class UserProfilePage extends StatefulWidget {
   final String username;
 
@@ -19,7 +15,6 @@ class UserProfilePage extends StatefulWidget {
 }
 
 class _UserProfilePageState extends State<UserProfilePage> {
-  // Global controllers for the edit dialog
   final _nameCtrl = TextEditingController();
   final _contactCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -30,39 +25,30 @@ class _UserProfilePageState extends State<UserProfilePage> {
   @override
   void initState() {
     super.initState();
-    // Load the saved profile info immediately when the page opens
     _loadProfileInfo();
   }
 
   @override
   void dispose() {
-    // Dispose controllers to prevent memory leaks
     _nameCtrl.dispose();
     _contactCtrl.dispose();
     _emailCtrl.dispose();
     super.dispose();
   }
 
-  // ==========================================
-  // CORE LOGIC: Loading and Saving (Based on reference code)
-  // ==========================================
-
   Future<void> _loadProfileInfo() async {
     final pref = await SharedPreferences.getInstance();
 
     setState(() {
-      // Read text data, fallback to passed username or "Not set" if null
       _nameCtrl.text = pref.getString('name') ?? widget.username;
       _emailCtrl.text = pref.getString('email') ?? "Not set";
       _contactCtrl.text = pref.getString('contact') ?? "Not set";
     });
 
-    // Read profile image path
     final appDataDir = await getApplicationDocumentsDirectory();
     final imagePath = '${appDataDir.path}/profile.png';
     final file = File(imagePath);
 
-    // Check if the image file exists in storage before setting it
     if (await file.exists()) {
       setState(() {
         _image = file;
@@ -73,12 +59,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
   Future<void> _saveProfileInfo() async {
     final pref = await SharedPreferences.getInstance();
 
-    // Save the text data to SharedPreferences
     pref.setString('name', _nameCtrl.text);
     pref.setString('email', _emailCtrl.text);
     pref.setString('contact', _contactCtrl.text);
 
-    // Save the image to the app directory if one was selected
     if (_image != null) {
       final appDataDir = await getApplicationDocumentsDirectory();
       final imagePath = '${appDataDir.path}/profile.png';
@@ -89,10 +73,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
       }
     }
 
-    // Force the main screen UI to refresh with the new data
     setState(() {});
 
-    // Show a success message
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profile Info Saved')),
@@ -105,7 +87,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
     if (pickedFile != null) {
       final newImage = File(pickedFile.path);
-      // Update both the dialog popup and the underlying page state
       setDialogState(() {
         _image = newImage;
       });
@@ -115,23 +96,21 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
   }
 
-  // ==========================================
-  // UI LOGIC: Edit Dialog & Main Layout
-  // ==========================================
-
   void _showEditProfileDialog() {
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
             builder: (context, setDialogState) {
+              bool isDark = Theme.of(context).brightness == Brightness.dark;
+
               return AlertDialog(
-                title: const Text('Edit Profile'),
+                backgroundColor: isDark ? Colors.grey[850] : Colors.white,
+                title: Text('Edit Profile', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
                 content: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Picture Upload Section
                       GestureDetector(
                         onTap: () => _getImage(setDialogState),
                         child: Stack(
@@ -160,7 +139,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       const Text('Tap picture to change', style: TextStyle(fontSize: 12, color: Colors.grey)),
                       const SizedBox(height: 20),
 
-                      // Input Fields (Linked directly to controllers)
                       TextField(
                         controller: _nameCtrl,
                         decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
@@ -183,16 +161,14 @@ class _UserProfilePageState extends State<UserProfilePage> {
                 actions: [
                   TextButton(
                     onPressed: () {
-                      // Reload original data to discard unsaved changes
                       _loadProfileInfo();
                       Navigator.pop(context);
                     },
-                    child: const Text('Cancel', style: TextStyle(color: Colors.red)),
+                    child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
                   ),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.brown[700]),
                     onPressed: () {
-                      // Trigger the save function
                       _saveProfileInfo();
                       Navigator.pop(context);
                     },
@@ -208,14 +184,19 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    bool isDark = Theme.of(context).brightness == Brightness.dark;
+
+    Color primaryColor = isDark ? Colors.white : Colors.brown[800]!;
+    Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[700]!;
+    Color borderColor = isDark ? Colors.brown[300]! : Colors.brown;
+
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
-        // 1. User Profile Display Box
         Container(
           padding: const EdgeInsets.all(16.0),
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.brown, width: 2),
+            border: Border.all(color: borderColor, width: 2),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -236,22 +217,26 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   children: [
                     Text(
                       _nameCtrl.text.isEmpty ? widget.username : _nameCtrl.text,
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: primaryColor,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       _contactCtrl.text.isEmpty ? "Not set" : _contactCtrl.text,
-                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 14, color: subTextColor),
                     ),
                     Text(
                       _emailCtrl.text.isEmpty ? "Not set" : _emailCtrl.text,
-                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 14, color: subTextColor),
                     ),
                   ],
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.edit, color: Colors.brown),
+                icon: Icon(Icons.edit, color: primaryColor),
                 onPressed: _showEditProfileDialog,
                 tooltip: 'Edit Profile',
               ),
@@ -261,36 +246,32 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
         const SizedBox(height: 30),
 
-        // 2. Menu Items
-        _buildProfileMenuItem(Icons.pets, 'Pet info', () {}),
-        _buildProfileMenuItem(Icons.calendar_today, 'Appointment', () {}),
-        _buildProfileMenuItem(
-          Icons.settings,
-          'Setting',
-              () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsPage()),
-            );
-          },
-        ),
+        _buildProfileMenuItem(Icons.pets, 'Pet info', () {}, isDark: isDark),
+        _buildProfileMenuItem(Icons.calendar_today, 'Appointment', () {}, isDark: isDark),
+        _buildProfileMenuItem(Icons.settings, 'Setting', () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const SettingsPage()),
+          );
+        }, isDark: isDark),
 
-        const Divider(color: Colors.brown, thickness: 1),
+        Divider(color: borderColor, thickness: 1),
 
-        // 3. Log out button
         _buildProfileMenuItem(
           Icons.logout,
           'Log out',
               () {},
-          itemColor: Colors.red,
+          isDark: isDark,
+          itemColor: isDark ? Colors.redAccent : Colors.red,
         ),
       ],
     );
   }
 
-  // Helper widget for menu rows
-  Widget _buildProfileMenuItem(IconData icon, String title, VoidCallback onTap, {Color? itemColor}) {
-    final Color finalColor = itemColor ?? Colors.brown[800]!;
+  Widget _buildProfileMenuItem(IconData icon, String title, VoidCallback onTap, {Color? itemColor, required bool isDark}) {
+    final Color defaultColor = isDark ? Colors.white : Colors.brown[800]!;
+    final Color finalColor = itemColor ?? defaultColor;
+
     return ListTile(
       leading: Icon(icon, color: finalColor, size: 28),
       title: Text(
