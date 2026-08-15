@@ -160,7 +160,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         // Use scaffold background color so it adapts to dark mode automatically
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 3,
-        shadowColor: Colors.brown.withOpacity(0.3),
+        shadowColor: Colors.brown.withValues(alpha: 0.3),
 
         leading: Padding(
           padding: const EdgeInsets.all(8.0),

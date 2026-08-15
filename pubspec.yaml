@@ -9,17 +9,19 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  excel: ^4.0.6
+  http: ^1.2.0
   cupertino_icons: ^1.0.2
   image_picker: ^1.0.4          # For picking the image
   shared_preferences: ^2.2.2    # For saving text data
   path_provider: ^2.1.2         # For saving the image file
-  csv: ^6.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  http: ^1.2.0
   flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/klinik.xlsx

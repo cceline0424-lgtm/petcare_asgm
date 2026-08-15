@@ -157,7 +157,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   title: const Text('Dark Mode'), // Removed the "(Mock)" text!
                   // Link the switch value directly to our global notifier
                   value: isDarkModeNotifier.value,
-                  activeColor: Colors.brown[300], // Lighter brown so it's visible in dark mode
+                  activeThumbColor: Colors.brown[300], // Lighter brown so it's visible in dark mode
                   onChanged: (bool value) {
                     setState(() {
                       _darkMode = value;
@@ -188,7 +188,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   title: const Text('Appointment Reminders'),
                   subtitle: const Text('Get notified before scheduled vet visits'),
                   value: _appointmentReminders,
-                  activeColor: Colors.brown,
+                  activeThumbColor: Colors.brown,
                   onChanged: (bool value) {
                     setState(() {
                       _appointmentReminders = value;
@@ -202,7 +202,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   title: const Text('Stray Map Alerts'),
                   subtitle: const Text('Alerts when strays are pinned near you'),
                   value: _strayMapAlerts,
-                  activeColor: Colors.brown,
+                  activeThumbColor: Colors.brown,
                   onChanged: (bool value) {
                     setState(() {
                       _strayMapAlerts = value;

@@ -1,7 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:petcare_asgm/VetClinic/places_service.dart';
+import 'package:flutter/services.dart' show ByteData, rootBundle;
+import 'package:excel/excel.dart' hide Border;
+import 'package:petcare_asgm/VetClinic/clinic_details_page.dart';
 
 class VetClinicPage extends StatefulWidget {
   const VetClinicPage({super.key});
@@ -11,24 +11,20 @@ class VetClinicPage extends StatefulWidget {
 }
 
 class _VetClinicPageState extends State<VetClinicPage> {
-  final TextEditingController _searchController =
-  TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
 
-  Timer? _debounceTimer;
+  List<Map<String, dynamic>> _allClinics = [];
+  List<Map<String, dynamic>> _displayedClinics = [];
 
-  List<Map<String, dynamic>> clinics = [];
+  String _selectedState = 'All States';
+  bool _isLoading = true;
 
-  String selectedArea = 'All Areas';
-
-  bool isLoading = true;
-  String? errorMessage;
-
-  final List<String> areas = [
-    'All Areas',
-    'Kuala Lumpur',
+  final List<String> _malaysiaStates = [
+    'All States',
+    'W.P. Kuala Lumpur',
     'Selangor',
     'Johor',
-    'Penang',
+    'Pulau Pinang',
     'Perak',
     'Melaka',
     'Negeri Sembilan',
@@ -36,582 +32,357 @@ class _VetClinicPageState extends State<VetClinicPage> {
     'Kedah',
     'Kelantan',
     'Terengganu',
-    'Perlis',
     'Sabah',
     'Sarawak',
-    'Putrajaya',
-    'Labuan',
+  ];
+
+  // Professional clinic, hospital, and consultation room photos
+  final List<String> _clinicPhotos = [
+    'https://images.unsplash.com/photo-1586773860418-d37222d8fce3?w=500&q=80',
+    'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=500&q=80',
+    'https://images.unsplash.com/photo-1512678080530-7760d81faba6?w=500&q=80',
+    'https://images.unsplash.com/photo-1538108149393-fbbd81895907?w=500&q=80',
+    'https://images.unsplash.com/photo-1514416432279-50fac261c4dd?w=500&q=80',
+    'https://images.unsplash.com/photo-1576091160550-2173ff3e52bf?w=500&q=80',
+    'https://images.unsplash.com/photo-1581056771107-11a4208a0d9e?w=500&q=80',
+    'https://images.unsplash.com/photo-1624727828456-0ba4637e77a2?w=500&q=80',
+    'https://images.unsplash.com/photo-1584982751601-0571224f1661?w=500&q=80',
+    'https://images.unsplash.com/photo-1516574187841-cb9cc2ca948b?w=500&q=80',
+    'https://images.unsplash.com/photo-1497366216548-37526070297c?w=500&q=80',
+    'https://images.unsplash.com/photo-1497366754045-fad886134a41?w=500&q=80',
+    'https://images.unsplash.com/photo-1504328345606-18bbc8c9d7d1?w=500&q=80',
+    'https://images.unsplash.com/photo-1551601651-2a8555f1a136?w=500&q=80',
+    'https://images.unsplash.com/photo-1519494080410-f9aa76cb4283?w=500&q=80',
+    'https://images.unsplash.com/photo-1504813184591-01572f98c85f?w=500&q=80',
+    'https://images.unsplash.com/photo-1516549655169-df83a0774514?w=500&q=80',
+    'https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=500&q=80',
+    'https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=500&q=80',
+    'https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=500&q=80',
   ];
 
   @override
   void initState() {
     super.initState();
-
-    _loadClinics();
+    _loadLocalExcelData();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _debounceTimer?.cancel();
-
     super.dispose();
   }
 
-  // =========================================================
-  // LOAD REAL VETERINARY CLINICS FROM GOOGLE PLACES API
-  // =========================================================
-
-  Future<void> _loadClinics() async {
-    if (!mounted) return;
-
+  Future<void> _loadLocalExcelData() async {
     setState(() {
-      isLoading = true;
-      errorMessage = null;
+      _isLoading = true;
     });
 
     try {
-      final results =
-      await PlacesService.searchVeterinaryClinics(
-        searchText: _searchController.text.trim(),
-        selectedArea: selectedArea,
-      );
+      ByteData data = await rootBundle.load('assets/klinik.xlsx');
+      var bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      var excel = Excel.decodeBytes(bytes);
+      List<Map<String, dynamic>> extracted = [];
 
-      if (!mounted) return;
+      for (var table in excel.tables.keys) {
+        var sheet = excel.tables[table]!;
 
-      setState(() {
-        clinics = results;
-        isLoading = false;
-      });
+        for (int i = 2; i < sheet.maxRows; i++) {
+          var row = sheet.row(i);
+
+          if (row.length >= 8 && row[2] != null) {
+            String name = row[2]?.value?.toString().trim() ?? '';
+
+            // Ignore footer notes and non-clinic rows
+            if (name.isEmpty || name.startsWith('*Nota') || name.startsWith('T/B')) {
+              continue;
+            }
+
+            String address1 = row[3]?.value?.toString().trim() ?? '';
+            String address2 = row[4]?.value?.toString().trim() ?? '';
+            String rawState = row[7]?.value?.toString().trim() ?? '';
+            String phone = row[8]?.value?.toString().trim() ?? 'N/A';
+
+            String fullAddress = address2.isNotEmpty ? '$address1, $address2' : address1;
+
+            // Deterministically pick a clinic photo based on index / name length
+            String photoUrl = _clinicPhotos[(i + name.length) % _clinicPhotos.length];
+
+            extracted.add({
+              'name': name,
+              'address': fullAddress,
+              'state': _guessStateFromAddress('$fullAddress $rawState'),
+              'phone': phone,
+              'photoUrl': photoUrl,
+            });
+          }
+        }
+        break;
+      }
+
+      if (mounted) {
+        setState(() {
+          _allClinics = extracted;
+          _displayedClinics = _allClinics;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        errorMessage = e.toString();
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  // =========================================================
-  // SEARCH WITH DEBOUNCE
-  // =========================================================
-
-  void _onSearchChanged(String value) {
-    _debounceTimer?.cancel();
-
-    _debounceTimer = Timer(
-      const Duration(milliseconds: 700),
-          () {
-        _loadClinics();
-      },
-    );
+  String _guessStateFromAddress(String address) {
+    String addr = address.toLowerCase();
+    if (addr.contains('kuala lumpur') || addr.contains('w.p.')) return 'W.P. Kuala Lumpur';
+    if (addr.contains('selangor') || addr.contains('petaling')) return 'Selangor';
+    if (addr.contains('pulau pinang') || addr.contains('penang') || addr.contains('georgetown')) return 'Pulau Pinang';
+    if (addr.contains('johor')) return 'Johor';
+    if (addr.contains('perak')) return 'Perak';
+    if (addr.contains('melaka')) return 'Melaka';
+    if (addr.contains('negeri sembilan')) return 'Negeri Sembilan';
+    if (addr.contains('pahang')) return 'Pahang';
+    if (addr.contains('kedah')) return 'Kedah';
+    if (addr.contains('kelantan')) return 'Kelantan';
+    if (addr.contains('terengganu')) return 'Terengganu';
+    if (addr.contains('sabah')) return 'Sabah';
+    if (addr.contains('sarawak')) return 'Sarawak';
+    return 'All States';
   }
 
-  // =========================================================
-  // AREA FILTER
-  // =========================================================
+  void _applyFilterAndSearch() {
+    List<Map<String, dynamic>> results = List.from(_allClinics);
 
-  void _onAreaChanged(String newArea) {
+    if (_selectedState != 'All States') {
+      results = results.where((c) => c['state'] == _selectedState).toList();
+    }
+
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isNotEmpty) {
+      results = results.where((c) {
+        final name = (c['name'] as String).toLowerCase();
+        final address = (c['address'] as String).toLowerCase();
+        return name.contains(query) || address.contains(query);
+      }).toList();
+    }
+
     setState(() {
-      selectedArea = newArea;
+      _displayedClinics = results;
     });
-
-    _loadClinics();
   }
 
   @override
   Widget build(BuildContext context) {
-    final bool isDark =
-        Theme.of(context).brightness == Brightness.dark;
-
-    final Color primaryColor =
-    isDark ? Colors.white : Colors.brown[800]!;
-
-    final Color boxColor =
-    isDark ? Colors.grey[850]! : Colors.white;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color primaryColor = isDark ? Colors.white : Colors.brown[800]!;
+    final Color cardBackground = isDark ? Colors.grey[850]! : Colors.white;
 
     return Scaffold(
-      backgroundColor:
-      Theme.of(context).scaffoldBackgroundColor,
-
       appBar: AppBar(
-        title: const Text('Vet Clinics'),
-        centerTitle: false,
+        title: const Text('Verified Vet Clinics'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        titleTextStyle: TextStyle(color: primaryColor, fontSize: 20, fontWeight: FontWeight.bold),
       ),
-
-      body: Column(
-        children: [
-          // =================================================
-          // SEARCH AND AREA FILTER
-          // =================================================
-
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-
-            child: Row(
-              children: [
-                // -------------------------------------------
-                // AREA DROPDOWN
-                // -------------------------------------------
-
-                Container(
-                  height: 52,
-
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12),
-
-                  decoration: BoxDecoration(
-                    color: boxColor,
-
-                    border: Border.all(
-                      color: primaryColor,
-                      width: 1.5,
-                    ),
-
-                    borderRadius:
-                    BorderRadius.circular(12),
-                  ),
-
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: selectedArea,
-
-                      icon: Icon(
-                        Icons.keyboard_arrow_down,
-                        color: primaryColor,
-                      ),
-
-                      dropdownColor: boxColor,
-
-                      items: areas.map((area) {
-                        return DropdownMenuItem<String>(
-                          value: area,
-
-                          child: Text(
-                            area,
-
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-
-                      onChanged: (value) {
-                        if (value != null) {
-                          _onAreaChanged(value);
-                        }
-                      },
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 12),
-
-                // -------------------------------------------
-                // SEARCH BAR
-                // -------------------------------------------
-
-                Expanded(
-                  child: SizedBox(
-                    height: 52,
-
-                    child: TextField(
-                      controller: _searchController,
-
-                      onChanged: _onSearchChanged,
-
-                      style: TextStyle(
-                        color: primaryColor,
-                      ),
-
-                      decoration: InputDecoration(
-                        hintText:
-                        'Search clinic or area...',
-
-                        hintStyle: TextStyle(
-                          color: isDark
-                              ? Colors.grey[400]
-                              : Colors.grey[600],
-                        ),
-
-                        prefixIcon: Icon(
-                          Icons.search,
-                          color: primaryColor,
-                        ),
-
-                        filled: true,
-
-                        fillColor: boxColor,
-
-                        contentPadding:
-                        const EdgeInsets.symmetric(
-                          vertical: 0,
-                        ),
-
-                        border: OutlineInputBorder(
-                          borderRadius:
-                          BorderRadius.circular(12),
-
-                          borderSide: BorderSide(
-                            color: primaryColor,
-                            width: 1.5,
-                          ),
-                        ),
-
-                        enabledBorder:
-                        OutlineInputBorder(
-                          borderRadius:
-                          BorderRadius.circular(12),
-
-                          borderSide: BorderSide(
-                            color: primaryColor,
-                            width: 1.5,
-                          ),
-                        ),
-
-                        focusedBorder:
-                        OutlineInputBorder(
-                          borderRadius:
-                          BorderRadius.circular(12),
-
-                          borderSide: BorderSide(
-                            color: primaryColor,
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // =================================================
-          // CLINIC RESULTS
-          // =================================================
-
-          Expanded(
-            child: _buildClinicContent(
-              primaryColor,
-              boxColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // =========================================================
-  // BUILD CLINIC CONTENT
-  // =========================================================
-
-  Widget _buildClinicContent(
-      Color primaryColor,
-      Color boxColor,
-      ) {
-    if (isLoading) {
-      return Center(
-        child: Column(
-          mainAxisAlignment:
-          MainAxisAlignment.center,
-
-          children: [
-            CircularProgressIndicator(
-              color: primaryColor,
-            ),
-
-            const SizedBox(height: 16),
-
-            Text(
-              'Loading real veterinary clinics...',
-
-              style: TextStyle(
-                color: primaryColor,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (errorMessage != null) {
-      return Center(
+      body: SafeArea(
         child: Padding(
-          padding:
-          const EdgeInsets.all(24.0),
-
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Column(
-            mainAxisAlignment:
-            MainAxisAlignment.center,
-
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.error_outline,
-                size: 50,
-                color: Colors.red[400],
-              ),
+              // Filter & Search Controls
+              Row(
+                children: [
+                  Container(
+                    height: 48,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: cardBackground,
+                      border: Border.all(color: primaryColor, width: 1.8),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedState,
+                        icon: Icon(Icons.keyboard_arrow_down, color: primaryColor),
+                        dropdownColor: cardBackground,
+                        style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold, fontSize: 13),
+                        items: _malaysiaStates.map((state) {
+                          return DropdownMenuItem<String>(value: state, child: Text(state));
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => _selectedState = val);
+                            _applyFilterAndSearch();
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
 
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (_) => _applyFilterAndSearch(),
+                        style: TextStyle(color: primaryColor),
+                        decoration: InputDecoration(
+                          hintText: 'Search clinic...',
+                          hintStyle: TextStyle(color: isDark ? Colors.grey[500] : Colors.grey[600], fontSize: 13),
+                          prefixIcon: Icon(Icons.search, color: primaryColor, size: 20),
+                          filled: true,
+                          fillColor: cardBackground,
+                          contentPadding: EdgeInsets.zero,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide(color: primaryColor, width: 1.8),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide(color: primaryColor, width: 1.8),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide(color: primaryColor, width: 2.2),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 16),
 
-              const Text(
-                'Unable to load clinics',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              // Clinic List Output
+              Expanded(
+                child: _isLoading
+                    ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(color: primaryColor),
+                      const SizedBox(height: 16),
+                      Text('Loading clinic directory...', style: TextStyle(color: primaryColor)),
+                    ],
+                  ),
+                )
+                    : _displayedClinics.isEmpty
+                    ? Center(
+                  child: Text(
+                    'No clinics found.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                  ),
+                )
+                    : ListView.builder(
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: _displayedClinics.length,
+                  itemBuilder: (context, index) {
+                    final clinic = _displayedClinics[index];
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: cardBackground,
+                        border: Border.all(color: primaryColor, width: 1.8),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ClinicDetailsPage(clinicData: clinic),
+                            ),
+                          );
+                        },
+                        child: Row(
+                          children: [
+                            // Clinic Building / Room Photo
+                            ClipRRect(
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(10),
+                                bottomLeft: Radius.circular(10),
+                              ),
+                              child: SizedBox(
+                                width: 100,
+                                height: 100,
+                                child: Image.network(
+                                  clinic['photoUrl'],
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      color: Colors.brown[100],
+                                      child: Icon(Icons.local_hospital_rounded, color: Colors.brown[800], size: 36),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+
+                            // Divider Line
+                            Container(
+                              width: 1.8,
+                              height: 100,
+                              color: primaryColor,
+                            ),
+
+                            // Text Details
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      clinic['name'],
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: primaryColor,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Icon(Icons.location_on, size: 14, color: Colors.grey[600]),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            clinic['address'],
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              ),
-
-              const SizedBox(height: 8),
-
-              Text(
-                errorMessage!,
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: 20),
-
-              ElevatedButton.icon(
-                onPressed: _loadClinics,
-
-                icon: const Icon(Icons.refresh),
-
-                label: const Text('Retry'),
               ),
             ],
           ),
-        ),
-      );
-    }
-
-    if (clinics.isEmpty) {
-      return const Center(
-        child: Text(
-          'No veterinary clinics found.',
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadClinics,
-
-      child: ListView.builder(
-        padding:
-        const EdgeInsets.fromLTRB(16, 0, 16, 16),
-
-        itemCount: clinics.length,
-
-        itemBuilder: (context, index) {
-          final clinic = clinics[index];
-
-          return _buildClinicCard(
-            clinic: clinic,
-            primaryColor: primaryColor,
-            boxColor: boxColor,
-          );
-        },
-      ),
-    );
-  }
-
-  // =========================================================
-  // CLINIC CARD
-  // =========================================================
-
-  Widget _buildClinicCard({
-    required Map<String, dynamic> clinic,
-    required Color primaryColor,
-    required Color boxColor,
-  }) {
-    final String? photoUrl =
-    PlacesService.getPhotoUrl(
-      clinic['photoName'],
-    );
-
-    return Card(
-      margin:
-      const EdgeInsets.only(bottom: 16),
-
-      elevation: 2,
-
-      color: boxColor,
-
-      shape: RoundedRectangleBorder(
-        borderRadius:
-        BorderRadius.circular(16),
-
-        side: BorderSide(
-          color: primaryColor,
-          width: 1,
-        ),
-      ),
-
-      child: InkWell(
-        borderRadius:
-        BorderRadius.circular(16),
-
-        onTap: () {
-          // Step 2 will navigate to the clinic details page.
-          // We will add this later.
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                clinic['name'],
-              ),
-            ),
-          );
-        },
-
-        child: Row(
-          children: [
-            // ===============================================
-            // REAL GOOGLE PLACE PHOTO
-            // ===============================================
-
-            ClipRRect(
-              borderRadius:
-              const BorderRadius.only(
-                topLeft: Radius.circular(15),
-                bottomLeft: Radius.circular(15),
-              ),
-
-              child: SizedBox(
-                width: 120,
-                height: 120,
-
-                child: photoUrl == null
-                    ? Container(
-                  color: Colors.grey[300],
-
-                  child: const Icon(
-                    Icons.local_hospital,
-                    size: 45,
-                  ),
-                )
-
-                    : Image.network(
-                  photoUrl,
-
-                  fit: BoxFit.cover,
-
-                  errorBuilder:
-                      (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.grey[300],
-
-                      child: const Icon(
-                        Icons.image_not_supported,
-                        size: 40,
-                      ),
-                    );
-                  },
-
-                  loadingBuilder:
-                      (
-                      context,
-                      child,
-                      loadingProgress,
-                      ) {
-                    if (loadingProgress == null) {
-                      return child;
-                    }
-
-                    return Center(
-                      child:
-                      CircularProgressIndicator(
-                        strokeWidth: 2,
-
-                        value:
-                        loadingProgress
-                            .expectedTotalBytes ==
-                            null
-                            ? null
-                            : loadingProgress
-                            .cumulativeBytesLoaded /
-                            loadingProgress
-                                .expectedTotalBytes!,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-
-            // ===============================================
-            // CLINIC INFORMATION
-            // ===============================================
-
-            Expanded(
-              child: Padding(
-                padding:
-                const EdgeInsets.all(14),
-
-                child: Column(
-                  crossAxisAlignment:
-                  CrossAxisAlignment.start,
-
-                  children: [
-                    Text(
-                      clinic['name'],
-
-                      maxLines: 2,
-
-                      overflow:
-                      TextOverflow.ellipsis,
-
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight:
-                        FontWeight.bold,
-                        color: primaryColor,
-                      ),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    Row(
-                      crossAxisAlignment:
-                      CrossAxisAlignment.start,
-
-                      children: [
-                        Icon(
-                          Icons.location_on_outlined,
-
-                          size: 18,
-
-                          color: Colors.grey[600],
-                        ),
-
-                        const SizedBox(width: 5),
-
-                        Expanded(
-                          child: Text(
-                            clinic['address'],
-
-                            maxLines: 3,
-
-                            overflow:
-                            TextOverflow.ellipsis,
-
-                            style: TextStyle(
-                              fontSize: 13,
-
-                              color:
-                              Colors.grey[600],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

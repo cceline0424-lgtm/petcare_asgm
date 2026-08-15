@@ -1,9 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:petcare_asgm/VetClinic/appointment_booking_page.dart';
 
 class ClinicDetailsPage extends StatefulWidget {
-  // This variable catches the data passed from Screen 1
   final Map<String, dynamic> clinicData;
 
   const ClinicDetailsPage({super.key, required this.clinicData});
@@ -13,137 +13,177 @@ class ClinicDetailsPage extends StatefulWidget {
 }
 
 class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
-  List<dynamic> matchedSuppliers = [];
-  bool isLoadingSuppliers = true;
+  List<dynamic> _pairedSuppliers = [];
+  bool _isLoadingSuppliers = true;
 
   @override
   void initState() {
     super.initState();
-    // Start fetching the suppliers as soon as the page opens!
-    _fetchAndMatchSuppliers();
+    _fetchAndPairMOHSuppliers();
   }
 
-  Future<void> _fetchAndMatchSuppliers() async {
+  /// Downloads live MOH pharmaceutical suppliers and pairs only those in the same State
+  Future<void> _fetchAndPairMOHSuppliers() async {
     try {
-      // 1. Fetch the live dataset from the MOH link
-      final url = Uri.parse('https://data.moh.gov.my/api/data-catalogue?id=pharmaceutical_wholesalers');
-      final response = await http.get(url);
+      final response = await http.get(
+        Uri.parse('https://data.moh.gov.my/api/data-catalogue?id=pharmaceutical_wholesalers'),
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
-        List<dynamic> allSuppliers = json.decode(response.body);
+        final List<dynamic> allSuppliers = json.decode(utf8.decode(response.bodyBytes));
+        final String clinicState = widget.clinicData['state'] ?? 'W.P. Kuala Lumpur';
 
-        // 2. The Pairing Logic: Filter suppliers to match the clinic's state!
-        String targetState = widget.clinicData['state'];
+        // Regional state matching logic
+        final matched = allSuppliers.where((supplier) {
+          final sState = (supplier['state'] ?? '').toString().trim().toLowerCase();
+          final cState = clinicState.trim().toLowerCase();
+          return sState == cState || sState.contains(cState) || cState.contains(sState);
+        }).toList();
 
-        setState(() {
-          matchedSuppliers = allSuppliers.where((supplier) {
-            return supplier['state'] == targetState;
-          }).toList();
-          isLoadingSuppliers = false;
-        });
+        if (mounted) {
+          setState(() {
+            _pairedSuppliers = matched;
+            _isLoadingSuppliers = false;
+          });
+        }
       }
     } catch (e) {
-      print("Error fetching MOH data: $e");
-      setState(() {
-        isLoadingSuppliers = false;
-      });
+      if (mounted) {
+        setState(() => _isLoadingSuppliers = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    bool isDark = Theme.of(context).brightness == Brightness.dark;
-    Color primaryColor = isDark ? Colors.white : Colors.brown[800]!;
-    Color textColor = isDark ? Colors.grey[300]! : Colors.black87;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color primaryColor = isDark ? Colors.white : Colors.brown[800]!;
+    final Color textColor = isDark ? Colors.grey[200]! : Colors.brown[900]!;
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        title: const Text('Clinic Details'),
+        backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: primaryColor),
+        titleTextStyle: TextStyle(color: primaryColor, fontSize: 18, fontWeight: FontWeight.bold),
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ==========================================
-            // TOP SECTION: Picture & Clinic Name
-            // ==========================================
+            // Top Section: Picture & Name
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Clinic Picture
                 Container(
-                  width: 100,
-                  height: 100,
+                  width: 120,
+                  height: 120,
                   decoration: BoxDecoration(
                     border: Border.all(color: primaryColor, width: 2),
-                    borderRadius: BorderRadius.circular(8),
-                    image: widget.clinicData['photoUrl'] != ''
-                        ? DecorationImage(
-                      image: NetworkImage(widget.clinicData['photoUrl']),
-                      fit: BoxFit.cover,
-                    )
-                        : null,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: widget.clinicData['photoUrl'] == ''
-                      ? Icon(Icons.pets, size: 40, color: primaryColor)
-                      : null,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(
+                      widget.clinicData['photoUrl'],
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 16),
-
-                // Clinic Name
                 Expanded(
-                  child: Text(
-                    widget.clinicData['name'],
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: primaryColor,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.clinicData['name'],
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.brown[100],
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          widget.clinicData['state'],
+                          style: TextStyle(color: Colors.brown[900], fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            const Divider(thickness: 1.5),
             const SizedBox(height: 16),
-
-            // ==========================================
-            // MIDDLE SECTION: Clinic Details (Matching your wireframe)
-            // ==========================================
-            _buildDetailRow("Provided service:", "Vaccination, Surgery, General Checkup", textColor),
-            _buildDetailRow("Location:", widget.clinicData['address'], textColor),
-            _buildDetailRow("Business hours:", "9:00 AM - 6:00 PM (Mon-Sat)", textColor),
-            _buildDetailRow("Opening date:", "Est. 2018", textColor),
-
-            const SizedBox(height: 24),
             const Divider(thickness: 1.5),
-            const SizedBox(height: 16),
 
-            // ==========================================
-            // BOTTOM SECTION: Paired Supplier List
-            // ==========================================
+            // Provided details (Matching Sketch 2)
+            _buildDetailField('provided service :', 'General Consultation, Vaccination, Surgery, Grooming, Dental'),
+            _buildDetailField('location :', widget.clinicData['address']),
+            _buildDetailField('Business hours :', widget.clinicData['opening_hours']),
+            _buildDetailField('contact number :', widget.clinicData['phone']),
+
+            const SizedBox(height: 16),
+            const Divider(thickness: 1.5),
+
+            // MOH Regional Supplier Subsection
             Text(
-              "- Suppliers in ${widget.clinicData['state']} -",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor),
+              '— Authorized Suppliers in ${widget.clinicData['state']} —',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryColor),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
 
-            Expanded(
-              child: isLoadingSuppliers
-                  ? Center(child: CircularProgressIndicator(color: primaryColor))
-                  : matchedSuppliers.isEmpty
-                  ? Text("No official suppliers found for this region.", style: TextStyle(color: textColor))
-                  : ListView.builder(
-                itemCount: matchedSuppliers.length,
-                itemBuilder: (context, index) {
-                  final supplier = matchedSuppliers[index];
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Text("${index + 1}.", style: TextStyle(fontSize: 16, color: textColor)),
-                    title: Text(supplier['company'] ?? 'Unknown Company', style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold)),
-                    subtitle: Text(supplier['address'] ?? 'No Address', style: TextStyle(color: textColor)),
+            _isLoadingSuppliers
+                ? const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
+                : _pairedSuppliers.isEmpty
+                ? Text('No registered wholesalers recorded for this state.', style: TextStyle(color: Colors.grey[600], fontSize: 12))
+                : ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _pairedSuppliers.length > 5 ? 5 : _pairedSuppliers.length,
+              itemBuilder: (context, idx) {
+                final s = _pairedSuppliers[idx];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('${idx + 1}. ', style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor)),
+                      Expanded(
+                        child: Text(
+                          '${s['company']} (${s['address'] ?? 'Official Distributor'})',
+                          style: TextStyle(fontSize: 12, color: textColor),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 24),
+
+            // Select Appointment Button (Leads to Screens 3 & 4)
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.brown[700],
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: const Icon(Icons.calendar_month, color: Colors.white),
+                label: const Text('Book Appointment', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AppointmentBookingPage(clinicData: widget.clinicData),
+                    ),
                   );
                 },
               ),
@@ -154,20 +194,15 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
     );
   }
 
-  // A helper widget to make the text layout look exactly like your sketch
-  Widget _buildDetailRow(String label, String value, Color textColor) {
+  Widget _buildDetailField(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Row(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 140, // Fixed width so the colons align perfectly
-            child: Text(label, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
-          ),
-          Expanded(
-            child: Text(value, style: TextStyle(fontSize: 16, color: textColor)),
-          ),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey)),
+          const SizedBox(height: 2),
+          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
         ],
       ),
     );
