@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:petcare_asgm/UserProfile/user_profile_page.dart';
+import 'VetClinic/vet_clinic_page.dart';
 
 // 1. Create a global notifier for Dark Mode
 final ValueNotifier<bool> isDarkModeNotifier = ValueNotifier(false);
@@ -145,7 +146,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     final List<Widget> pages = [
       const Center(child: Text('Pet Adoption Page', style: TextStyle(fontSize: 24))),
-      const Center(child: Text('Vet Clinic Page', style: TextStyle(fontSize: 24))),
+      const VetClinicPage(),
       const Center(child: Text('Home Page', style: TextStyle(fontSize: 24))),
       const Center(child: Text('Stray Map Page', style: TextStyle(fontSize: 24))),
       UserProfilePage(username: widget.username),
