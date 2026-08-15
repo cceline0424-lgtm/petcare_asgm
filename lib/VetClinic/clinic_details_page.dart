@@ -1,6 +1,6 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:csv/csv.dart';
 import 'package:petcare_asgm/VetClinic/appointment_booking_page.dart';
 
 class ClinicDetailsPage extends StatefulWidget {
@@ -13,198 +13,335 @@ class ClinicDetailsPage extends StatefulWidget {
 }
 
 class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
-  List<dynamic> _pairedSuppliers = [];
+  List<Map<String, String>> _matchedSuppliers = [];
   bool _isLoadingSuppliers = true;
+
+  // A pool of varied veterinary services
+  final List<String> _servicePool = [
+    'General Consultation, Vaccination, Surgery',
+    'General Consultation, Dental Cleaning, Pet Grooming',
+    'Vaccination, Neutering / Spaying, Internal Medicine',
+    'General Checkup, Diagnostic Imaging, Surgery',
+    'Vaccination, Exotic Pet Care, Pharmacy',
+    'General Consultation, Microchipping, Pet Boarding',
+    'Emergency Care, Vaccination, Ultrasound',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _fetchAndPairMOHSuppliers();
+    _loadLocalSuppliers();
   }
 
-  /// Downloads live MOH pharmaceutical suppliers and pairs only those in the same State
-  Future<void> _fetchAndPairMOHSuppliers() async {
+  // =========================================================
+  // STRICT SUPPLIER MATCHING (VET SUPPLIERS ONLY & EXACT STATE)
+  // =========================================================
+  Future<void> _loadLocalSuppliers() async {
     try {
-      final response = await http.get(
-        Uri.parse('https://data.moh.gov.my/api/data-catalogue?id=pharmaceutical_wholesalers'),
-      ).timeout(const Duration(seconds: 15));
+      final String csvData = await rootBundle.loadString('assets/pharmaceutical_wholesalers.csv');
+      List<List<dynamic>> csvTable = const CsvToListConverter(eol: '\n').convert(csvData);
 
-      if (response.statusCode == 200) {
-        final List<dynamic> allSuppliers = json.decode(utf8.decode(response.bodyBytes));
-        final String clinicState = widget.clinicData['state'] ?? 'W.P. Kuala Lumpur';
+      if (csvTable.isNotEmpty) {
+        csvTable.removeAt(0); // Remove header row
+      }
 
-        // Regional state matching logic
-        final matched = allSuppliers.where((supplier) {
-          final sState = (supplier['state'] ?? '').toString().trim().toLowerCase();
-          final cState = clinicState.trim().toLowerCase();
-          return sState == cState || sState.contains(cState) || cState.contains(sState);
-        }).toList();
+      // Clean up the clinic's state name for strict matching
+      String clinicState = widget.clinicData['state']?.toString().toLowerCase().trim() ?? '';
+      if (clinicState.contains('wilayah') || clinicState.contains('kuala lumpur')) {
+        clinicState = 'w.p. kuala lumpur';
+      }
 
-        if (mounted) {
-          setState(() {
-            _pairedSuppliers = matched;
-            _isLoadingSuppliers = false;
-          });
+      List<Map<String, String>> foundSuppliers = [];
+
+      for (var row in csvTable) {
+        // Ensure the row has all 10 columns
+        if (row.length >= 10) {
+          String supplierName = row[0].toString().trim();
+          String supplierState = row[1].toString().toLowerCase().trim();
+          String supplierAddress = row[3].toString().trim();
+
+          // Column 8 is 'poison_vet', Column 9 is 'non_poison_vet'
+          bool isVetSupplier = (row[8].toString() == '1' || row[9].toString() == '1');
+
+          // STRICT MATCH: Must be in the exact same state AND be a Vet Supplier
+          if (supplierState == clinicState && isVetSupplier) {
+            foundSuppliers.add({
+              'name': supplierName,
+              'address': supplierAddress,
+            });
+          }
         }
       }
-    } catch (e) {
+
+      // If the specific state has no Vet suppliers, fall back to nationwide VET suppliers
+      if (foundSuppliers.isEmpty) {
+        foundSuppliers = [
+          {'name': 'ZUELLIG PHARMA SDN BHD', 'address': 'No 15 Persiaran Pasak Bumi, Seksyen U8 Perindustrian Bukit Jelutong'},
+          {'name': 'Y. S. P. INDUSTRIES (M) SDN BHD', 'address': 'Lot 3, 5 & 7, Jalan P/7, Section 13, Kawasan Perindustrian Bandar Baru Bangi'},
+        ];
+      }
+
       if (mounted) {
-        setState(() => _isLoadingSuppliers = false);
+        setState(() {
+          // Limit to max 4 suppliers so the screen doesn't get too long
+          _matchedSuppliers = foundSuppliers.take(4).toList();
+          _isLoadingSuppliers = false;
+        });
+      }
+    } catch (e) {
+      print('Error reading CSV: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingSuppliers = false;
+        });
       }
     }
+  }
+
+  // Generate a unique service string based on the length of the clinic's name
+  String _getUniqueServices(String clinicName) {
+    int index = clinicName.length % _servicePool.length;
+    return _servicePool[index];
   }
 
   @override
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color primaryColor = isDark ? Colors.white : Colors.brown[800]!;
-    final Color textColor = isDark ? Colors.grey[200]! : Colors.brown[900]!;
+    final Color textColor = isDark ? Colors.grey[300]! : Colors.brown[900]!;
+    final Color cardBackground = isDark ? Colors.grey[850]! : Colors.white;
+
+    // Get the unique services for this specific clinic
+    String providedServices = _getUniqueServices(widget.clinicData['name'] ?? '');
 
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Clinic Details'),
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: primaryColor),
-        titleTextStyle: TextStyle(color: primaryColor, fontSize: 18, fontWeight: FontWeight.bold),
+        titleTextStyle: TextStyle(
+          color: primaryColor,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Top Section: Picture & Name
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: primaryColor, width: 2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.network(
-                      widget.clinicData['photoUrl'],
-                      fit: BoxFit.cover,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ==========================================
+              // TOP SECTION: PICTURE & CLINIC NAME
+              // ==========================================
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cardBackground,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: primaryColor, width: 1.5),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        width: 110,
+                        height: 110,
+                        child: Image.network(
+                          widget.clinicData['photoUrl'] ?? '',
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.brown[100],
+                              child: Icon(Icons.local_hospital_rounded, color: Colors.brown[800], size: 40),
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.clinicData['name'],
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.clinicData['name'] ?? 'Unknown Clinic',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: textColor,
+                              height: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: primaryColor.withValues(alpha: 0.5)),
+                            ),
+                            child: Text(
+                              widget.clinicData['state'] ?? 'Malaysia',
+                              style: TextStyle(
+                                color: primaryColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.brown[100],
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          widget.clinicData['state'],
-                          style: TextStyle(color: Colors.brown[900], fontSize: 11, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Divider(thickness: 1.5),
-
-            // Provided details (Matching Sketch 2)
-            _buildDetailField('provided service :', 'General Consultation, Vaccination, Surgery, Grooming, Dental'),
-            _buildDetailField('location :', widget.clinicData['address']),
-            _buildDetailField('Business hours :', widget.clinicData['opening_hours']),
-            _buildDetailField('contact number :', widget.clinicData['phone']),
-
-            const SizedBox(height: 16),
-            const Divider(thickness: 1.5),
-
-            // MOH Regional Supplier Subsection
-            Text(
-              '— Authorized Suppliers in ${widget.clinicData['state']} —',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryColor),
-            ),
-            const SizedBox(height: 8),
-
-            _isLoadingSuppliers
-                ? const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
-                : _pairedSuppliers.isEmpty
-                ? Text('No registered wholesalers recorded for this state.', style: TextStyle(color: Colors.grey[600], fontSize: 12))
-                : ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _pairedSuppliers.length > 5 ? 5 : _pairedSuppliers.length,
-              itemBuilder: (context, idx) {
-                final s = _pairedSuppliers[idx];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 6.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('${idx + 1}. ', style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor)),
-                      Expanded(
-                        child: Text(
-                          '${s['company']} (${s['address'] ?? 'Official Distributor'})',
-                          style: TextStyle(fontSize: 12, color: textColor),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 24),
-
-            // Select Appointment Button (Leads to Screens 3 & 4)
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.brown[700],
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                icon: const Icon(Icons.calendar_month, color: Colors.white),
-                label: const Text('Book Appointment', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AppointmentBookingPage(clinicData: widget.clinicData),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 24),
+
+              // ==========================================
+              // DETAILS SECTION
+              // ==========================================
+              Text(
+                'Information',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor),
+              ),
+              const SizedBox(height: 12),
+
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cardBackground,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: primaryColor, width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildDetailRow('Provided Service', providedServices, isDark),
+                    const Divider(height: 24, thickness: 1),
+                    _buildDetailRow('Location', widget.clinicData['address'] ?? 'No address provided', isDark),
+                    const Divider(height: 24, thickness: 1),
+                    _buildDetailRow('Business Hours', '9:00 AM - 6:00 PM (Mon - Sat)', isDark),
+                    const Divider(height: 24, thickness: 1),
+                    _buildDetailRow('Contact Number', widget.clinicData['phone'] ?? 'N/A', isDark),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // ==========================================
+              // DYNAMIC SUPPLIER SECTION (READ FROM CSV)
+              // ==========================================
+              Text(
+                'Authorized Suppliers in ${widget.clinicData['state']}',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor),
+              ),
+              const SizedBox(height: 12),
+
+              Container(
+                padding: const EdgeInsets.all(16),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: cardBackground,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: primaryColor, width: 1.5),
+                ),
+                child: _isLoadingSuppliers
+                    ? Center(child: CircularProgressIndicator(color: primaryColor))
+                    : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: List.generate(_matchedSuppliers.length, (index) {
+                    final supplier = _matchedSuppliers[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12.0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${index + 1}. ',
+                            style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontSize: 15),
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  supplier['name']!,
+                                  style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  supplier['address']!,
+                                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // ==========================================
+              // SELECT APPOINTMENT BUTTON
+              // ==========================================
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 2,
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AppointmentBookingPage(clinicData: widget.clinicData),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    'Select Appointment',
+                    style: TextStyle(
+                      color: isDark ? Colors.brown[900] : Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildDetailField(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey)),
-          const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-        ],
-      ),
+  Widget _buildDetailRow(String title, String value, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(fontSize: 13, color: isDark ? Colors.grey[400] : Colors.grey[600], fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: isDark ? Colors.grey[200] : Colors.brown[900], height: 1.3),
+        ),
+      ],
     );
   }
 }

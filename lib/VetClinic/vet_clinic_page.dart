@@ -86,14 +86,17 @@ class _VetClinicPageState extends State<VetClinicPage> {
       for (var table in excel.tables.keys) {
         var sheet = excel.tables[table]!;
 
-        for (int i = 2; i < sheet.maxRows; i++) {
+        for (int i = 3; i < sheet.maxRows; i++) {
           var row = sheet.row(i);
 
           if (row.length >= 8 && row[2] != null) {
             String name = row[2]?.value?.toString().trim() ?? '';
 
-            // Ignore footer notes and non-clinic rows
-            if (name.isEmpty || name.startsWith('*Nota') || name.startsWith('T/B')) {
+            // Ignore footer notes, blank rows, and headers
+            if (name.isEmpty ||
+                name.startsWith('*Nota') ||
+                name.startsWith('T/B') ||
+                name.toLowerCase() == 'nama klinik') { // Extra safeguard!
               continue;
             }
 
@@ -104,7 +107,7 @@ class _VetClinicPageState extends State<VetClinicPage> {
 
             String fullAddress = address2.isNotEmpty ? '$address1, $address2' : address1;
 
-            // Deterministically pick a clinic photo based on index / name length
+            // Deterministically pick a clinic photo
             String photoUrl = _clinicPhotos[(i + name.length) % _clinicPhotos.length];
 
             extracted.add({
