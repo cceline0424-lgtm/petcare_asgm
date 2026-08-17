@@ -36,7 +36,6 @@ class _VetClinicPageState extends State<VetClinicPage> {
     'Sarawak',
   ];
 
-  // Professional clinic, hospital, and consultation room photos
   final List<String> _clinicPhotos = [
     'https://images.unsplash.com/photo-1586773860418-d37222d8fce3?w=500&q=80',
     'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=500&q=80',
@@ -92,11 +91,10 @@ class _VetClinicPageState extends State<VetClinicPage> {
           if (row.length >= 8 && row[2] != null) {
             String name = row[2]?.value?.toString().trim() ?? '';
 
-            // Ignore footer notes, blank rows, and headers
             if (name.isEmpty ||
                 name.startsWith('*Nota') ||
                 name.startsWith('T/B') ||
-                name.toLowerCase() == 'nama klinik') { // Extra safeguard!
+                name.toLowerCase() == 'nama klinik') {
               continue;
             }
 
@@ -104,10 +102,7 @@ class _VetClinicPageState extends State<VetClinicPage> {
             String address2 = row[4]?.value?.toString().trim() ?? '';
             String rawState = row[7]?.value?.toString().trim() ?? '';
             String phone = row[8]?.value?.toString().trim() ?? 'N/A';
-
             String fullAddress = address2.isNotEmpty ? '$address1, $address2' : address1;
-
-            // Deterministically pick a clinic photo
             String photoUrl = _clinicPhotos[(i + name.length) % _clinicPhotos.length];
 
             extracted.add({
@@ -196,7 +191,6 @@ class _VetClinicPageState extends State<VetClinicPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Filter & Search Controls
               Row(
                 children: [
                   Container(
@@ -261,7 +255,6 @@ class _VetClinicPageState extends State<VetClinicPage> {
               ),
               const SizedBox(height: 16),
 
-              // Clinic List Output
               Expanded(
                 child: _isLoading
                     ? Center(
@@ -307,7 +300,6 @@ class _VetClinicPageState extends State<VetClinicPage> {
                         },
                         child: Row(
                           children: [
-                            // Clinic Building / Room Photo
                             ClipRRect(
                               borderRadius: const BorderRadius.only(
                                 topLeft: Radius.circular(10),
@@ -328,15 +320,11 @@ class _VetClinicPageState extends State<VetClinicPage> {
                                 ),
                               ),
                             ),
-
-                            // Divider Line
                             Container(
                               width: 1.8,
                               height: 100,
                               color: primaryColor,
                             ),
-
-                            // Text Details
                             Expanded(
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

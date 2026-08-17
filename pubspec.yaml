@@ -16,8 +16,13 @@ dependencies:
   cloud_firestore: ^5.0.0
   cupertino_icons: ^1.0.2
   image_picker: ^1.0.4          # For picking the image
-  shared_preferences: ^2.2.2    # For saving text data
+  shared_preferences: ^2.5.5    # For saving text data
   path_provider: ^2.1.2         # For saving the image file
+  flutter_local_notifications: ^22.3.0
+  timezone: ^0.11.1
+  flutter_map: ^8.3.1
+  latlong2: ^0.10.1
+  camera: ^0.12.0+2
 
 dev_dependencies:
   flutter_test:

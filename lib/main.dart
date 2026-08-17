@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:petcare_asgm/UserProfile/user_profile_page.dart';
-import 'VetClinic/vet_clinic_page.dart';
+import 'package:petcare_asgm/VetClinic/vet_clinic_page.dart';
+import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
+import 'Map/stray_map_page.dart';
 
-// 1. Create a global notifier for Dark Mode
 final ValueNotifier<bool> isDarkModeNotifier = ValueNotifier(false);
 
 void main() async {
-  // 2. Ensure Flutter is initialized before reading SharedPreferences
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 3. Load the saved dark mode preference before the app starts
   final prefs = await SharedPreferences.getInstance();
   isDarkModeNotifier.value = prefs.getBool('dark_mode') ?? false;
 
@@ -22,7 +21,6 @@ class PetHealthCareApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 4. Wrap MaterialApp in a ValueListenableBuilder to listen for theme changes
     return ValueListenableBuilder<bool>(
       valueListenable: isDarkModeNotifier,
       builder: (context, isDark, child) {
@@ -30,22 +28,18 @@ class PetHealthCareApp extends StatelessWidget {
           title: 'Pet Health Care',
           debugShowCheckedModeBanner: false,
 
-          // --- LIGHT THEME ---
           theme: ThemeData(
             brightness: Brightness.light,
             primarySwatch: Colors.brown,
             scaffoldBackgroundColor: Colors.white,
           ),
 
-          // --- DARK THEME ---
           darkTheme: ThemeData(
             brightness: Brightness.dark,
             primarySwatch: Colors.brown,
             scaffoldBackgroundColor: Colors.grey[900],
             cardColor: Colors.grey[850],
           ),
-
-          // 5. Switch between themes based on the notifier
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
 
           home: const MainNavigationScreen(username: 'User'),
@@ -65,16 +59,37 @@ class MainNavigationScreen extends StatefulWidget {
 }
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  int _currentIndex = 2; // Default to Home Page
-  bool _hasNewNotifications = true;
+  int _currentIndex = 2;
+  bool _hasNewNotifications = false;
+
+  Map<String, dynamic>? _upcomingAppointment;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkUpcomingAppointments();
+  }
+
+  Future<void> _checkUpcomingAppointments() async {
+    final appointments = await AppointmentStorage.getAppointments();
+
+    final upcomingList = appointments.where((app) => app['status'] == 'Upcoming').toList();
+
+    if (upcomingList.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _upcomingAppointment = upcomingList.last;
+          _hasNewNotifications = true;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     bool isHomeSelected = _currentIndex == 2;
-    // Check if the app is currently in dark mode to adjust hardcoded text colors
     bool isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Function to show the notification tray
     void _showNotificationTray(BuildContext context, bool isDark) {
       showModalBottomSheet(
           context: context,
@@ -92,7 +107,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Tray Header
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -108,17 +122,22 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   ),
                   const Divider(),
 
-                  // Mock Notification 1
-                  ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.brown[100],
-                      child: Icon(Icons.calendar_month, color: Colors.brown[800]),
+                  if (_upcomingAppointment != null)
+                    ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.brown[100],
+                        child: Icon(Icons.calendar_month, color: Colors.brown[800]),
+                      ),
+                      title: Text(
+                          'Appointment Reminder',
+                          style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
+                      ),
+                      subtitle: Text(
+                          'Your vet visit at ${_upcomingAppointment!['clinicName']} is coming up on ${_upcomingAppointment!['date']} at ${_upcomingAppointment!['time']}.',
+                          style: TextStyle(color: subtitleColor)
+                      ),
                     ),
-                    title: Text('Appointment Reminder', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                    subtitle: Text('Your vet visit at Setapak Animal Clinic is tomorrow at 10:00 AM.', style: TextStyle(color: subtitleColor)),
-                  ),
 
-                  // Mock Notification 2
                   ListTile(
                     leading: CircleAvatar(
                       backgroundColor: Colors.red[100],
@@ -128,7 +147,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     subtitle: Text('A new stray animal was reported nearby. Tap to view the location.', style: TextStyle(color: subtitleColor)),
                   ),
 
-                  // Mock Notification 3
                   ListTile(
                     leading: CircleAvatar(
                       backgroundColor: Colors.green[100],
@@ -148,16 +166,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       const Center(child: Text('Pet Adoption Page', style: TextStyle(fontSize: 24))),
       const VetClinicPage(),
       const Center(child: Text('Home Page', style: TextStyle(fontSize: 24))),
-      const Center(child: Text('Stray Map Page', style: TextStyle(fontSize: 24))),
+      const StrayMapPage(),
       UserProfilePage(username: widget.username),
     ];
 
     return Scaffold(
-      // ==========================================
-      // TOP BANNER (APP BAR)
-      // ==========================================
       appBar: AppBar(
-        // Use scaffold background color so it adapts to dark mode automatically
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 3,
         shadowColor: Colors.brown.withValues(alpha: 0.3),
@@ -181,7 +195,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         title: Text(
           'Pet Health Care',
           style: TextStyle(
-            color: isDark ? Colors.white : Colors.brown[800], // Text turns white in dark mode
+            color: isDark ? Colors.white : Colors.brown[800],
             fontSize: 22,
             fontWeight: FontWeight.w800,
             letterSpacing: 0.5,
@@ -201,23 +215,20 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     size: 28,
                   ),
                   onPressed: () {
-                    // 1. Tell the app the notifications have been read
                     setState(() {
                       _hasNewNotifications = false;
                     });
 
-                    // 2. Show the tray
                     _showNotificationTray(context, isDark);
                   },
                 ),
 
-                // 3. ONLY draw the red dot if there are new notifications!
                 if (_hasNewNotifications)
                   Positioned(
                     right: 12,
                     top: 14,
                     child: Container(
-                      width: 10, // Added explicit width and height so it looks like a clean dot
+                      width: 10,
                       height: 10,
                       decoration: const BoxDecoration(
                         color: Colors.red,
@@ -233,9 +244,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
       body: pages[_currentIndex],
 
-      // ==========================================
-      // BOTTOM NAVIGATION & FLOATING BUTTON
-      // ==========================================
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.brown[700],
         elevation: isHomeSelected ? 6 : 0,

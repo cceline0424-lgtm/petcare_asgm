@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:petcare_asgm/UserProfile/setting.dart';
+import 'package:petcare_asgm/UserProfile/my_appointments_page.dart';
 
 class UserProfilePage extends StatefulWidget {
   final String username;
@@ -247,7 +248,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
         const SizedBox(height: 30),
 
         _buildProfileMenuItem(Icons.pets, 'Pet info', () {}, isDark: isDark),
-        _buildProfileMenuItem(Icons.calendar_today, 'Appointment', () {}, isDark: isDark),
+        _buildProfileMenuItem(Icons.calendar_today, 'Appointment', () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const MyAppointmentsPage()),
+          );
+        }, isDark: isDark),
         _buildProfileMenuItem(Icons.settings, 'Setting', () {
           Navigator.push(
             context,

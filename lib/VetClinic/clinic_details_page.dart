@@ -16,7 +16,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
   List<Map<String, String>> _matchedSuppliers = [];
   bool _isLoadingSuppliers = true;
 
-  // A pool of varied veterinary services
   final List<String> _servicePool = [
     'General Consultation, Vaccination, Surgery',
     'General Consultation, Dental Cleaning, Pet Grooming',
@@ -33,19 +32,15 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
     _loadLocalSuppliers();
   }
 
-  // =========================================================
-  // STRICT SUPPLIER MATCHING (VET SUPPLIERS ONLY & EXACT STATE)
-  // =========================================================
   Future<void> _loadLocalSuppliers() async {
     try {
       final String csvData = await rootBundle.loadString('assets/pharmaceutical_wholesalers.csv');
       List<List<dynamic>> csvTable = const CsvToListConverter(eol: '\n').convert(csvData);
 
       if (csvTable.isNotEmpty) {
-        csvTable.removeAt(0); // Remove header row
+        csvTable.removeAt(0);
       }
 
-      // Clean up the clinic's state name for strict matching
       String clinicState = widget.clinicData['state']?.toString().toLowerCase().trim() ?? '';
       if (clinicState.contains('wilayah') || clinicState.contains('kuala lumpur')) {
         clinicState = 'w.p. kuala lumpur';
@@ -54,16 +49,12 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
       List<Map<String, String>> foundSuppliers = [];
 
       for (var row in csvTable) {
-        // Ensure the row has all 10 columns
         if (row.length >= 10) {
           String supplierName = row[0].toString().trim();
           String supplierState = row[1].toString().toLowerCase().trim();
           String supplierAddress = row[3].toString().trim();
-
-          // Column 8 is 'poison_vet', Column 9 is 'non_poison_vet'
           bool isVetSupplier = (row[8].toString() == '1' || row[9].toString() == '1');
 
-          // STRICT MATCH: Must be in the exact same state AND be a Vet Supplier
           if (supplierState == clinicState && isVetSupplier) {
             foundSuppliers.add({
               'name': supplierName,
@@ -73,7 +64,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
         }
       }
 
-      // If the specific state has no Vet suppliers, fall back to nationwide VET suppliers
       if (foundSuppliers.isEmpty) {
         foundSuppliers = [
           {'name': 'ZUELLIG PHARMA SDN BHD', 'address': 'No 15 Persiaran Pasak Bumi, Seksyen U8 Perindustrian Bukit Jelutong'},
@@ -83,7 +73,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
 
       if (mounted) {
         setState(() {
-          // Limit to max 4 suppliers so the screen doesn't get too long
           _matchedSuppliers = foundSuppliers.take(4).toList();
           _isLoadingSuppliers = false;
         });
@@ -98,7 +87,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
     }
   }
 
-  // Generate a unique service string based on the length of the clinic's name
   String _getUniqueServices(String clinicName) {
     int index = clinicName.length % _servicePool.length;
     return _servicePool[index];
@@ -110,8 +98,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
     final Color primaryColor = isDark ? Colors.white : Colors.brown[800]!;
     final Color textColor = isDark ? Colors.grey[300]! : Colors.brown[900]!;
     final Color cardBackground = isDark ? Colors.grey[850]! : Colors.white;
-
-    // Get the unique services for this specific clinic
     String providedServices = _getUniqueServices(widget.clinicData['name'] ?? '');
 
     return Scaffold(
@@ -133,9 +119,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ==========================================
-              // TOP SECTION: PICTURE & CLINIC NAME
-              // ==========================================
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -202,9 +185,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
               ),
               const SizedBox(height: 24),
 
-              // ==========================================
-              // DETAILS SECTION
-              // ==========================================
               Text(
                 'Information',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor),
@@ -233,9 +213,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
               ),
               const SizedBox(height: 24),
 
-              // ==========================================
-              // DYNAMIC SUPPLIER SECTION (READ FROM CSV)
-              // ==========================================
               Text(
                 'Authorized Suppliers in ${widget.clinicData['state']}',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: primaryColor),
@@ -289,9 +266,6 @@ class _ClinicDetailsPageState extends State<ClinicDetailsPage> {
               ),
               const SizedBox(height: 32),
 
-              // ==========================================
-              // SELECT APPOINTMENT BUTTON
-              // ==========================================
               SizedBox(
                 width: double.infinity,
                 height: 54,

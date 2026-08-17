@@ -11,7 +11,6 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  // Notification toggle states
   bool _appointmentReminders = true;
   bool _strayMapAlerts = true;
   bool _darkMode = false;
@@ -22,7 +21,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadSettings();
   }
 
-  // Load saved settings from SharedPreferences
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -32,15 +30,11 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  // Save toggle changes instantly
   Future<void> _saveSetting(String key, bool value) async {
     final prefs = await SharedPreferences.getInstance();
     prefs.setBool(key, value);
   }
 
-  // ==========================================
-  // CHANGE PASSWORD DIALOG POPUP
-  // ==========================================
   void _showChangePasswordDialog() {
     final currentPasswordController = TextEditingController();
     final newPasswordController = TextEditingController();
@@ -99,7 +93,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   return;
                 }
 
-                // Save the new password locally
                 final prefs = await SharedPreferences.getInstance();
                 prefs.setString('password', newPasswordController.text);
 
@@ -154,18 +147,14 @@ class _SettingsPageState extends State<SettingsPage> {
               children: [
                 SwitchListTile(
                   secondary: const Icon(Icons.dark_mode_outlined),
-                  title: const Text('Dark Mode'), // Removed the "(Mock)" text!
-                  // Link the switch value directly to our global notifier
+                  title: const Text('Dark Mode'),
                   value: isDarkModeNotifier.value,
-                  activeThumbColor: Colors.brown[300], // Lighter brown so it's visible in dark mode
+                  activeThumbColor: Colors.brown[300],
                   onChanged: (bool value) {
                     setState(() {
                       _darkMode = value;
                     });
-                    // Tell the whole app to change color instantly!
                     isDarkModeNotifier.value = value;
-
-                    // Save the choice so it remembers next time you open the app
                     _saveSetting('dark_mode', value);
                   },
                 ),

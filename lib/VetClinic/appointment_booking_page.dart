@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
 
 class AppointmentBookingPage extends StatefulWidget {
   final Map<String, dynamic> clinicData;
@@ -10,14 +11,11 @@ class AppointmentBookingPage extends StatefulWidget {
 }
 
 class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
-  // Step indicator: 0 = Screen 3 (Calendar / Date Selection), 1 = Screen 4 (Booking Form)
   int _currentStep = 0;
 
-  // Selected Date & Time
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
   String _selectedTimeSlot = '10:00 AM';
 
-  // Available Time Slots
   final List<String> _timeSlots = [
     '09:30 AM',
     '10:00 AM',
@@ -29,7 +27,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     '05:30 PM',
   ];
 
-  // Selected Service
   String _selectedService = 'General Consultation';
   final List<String> _services = [
     'General Consultation',
@@ -40,14 +37,13 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     'Surgery / Minor Procedure',
   ];
 
-  // Form Controllers
   final TextEditingController _ownerNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _petNameController = TextEditingController();
   final TextEditingController _breedController = TextEditingController();
 
   int _petAge = 1;
-  String _petGender = 'F'; // 'F' or 'M'
+  String _petGender = 'F';
 
   final _formKey = GlobalKey<FormState>();
 
@@ -60,7 +56,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     super.dispose();
   }
 
-  // Pick Date via Calendar Dialog
   Future<void> _pickCustomDate(Color primaryColor) async {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -110,9 +105,21 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     }
   }
 
-  void _submitAppointment(Color primaryColor) {
+  void _submitAppointment(Color primaryColor) async {
     if (!_formKey.currentState!.validate()) return;
 
+    // 1. Prepare the data
+    Map<String, dynamic> newAppointment = {
+      'clinicName': widget.clinicData['name'],
+      'date': '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
+      'time': _selectedTimeSlot,
+      'service': _selectedService,
+      'petName': _petNameController.text.trim(),
+    };
+
+    await AppointmentStorage.saveAppointment(newAppointment);
+
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -122,36 +129,16 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           children: [
             Icon(Icons.check_circle, color: primaryColor, size: 28),
             const SizedBox(width: 8),
-            const Text(
-              'Booking Confirmed',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
+            const Text('Booking Confirmed', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Clinic: ${widget.clinicData['name']}'),
-            const SizedBox(height: 6),
-            Text('Date: ${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year} at $_selectedTimeSlot'),
-            const SizedBox(height: 6),
-            Text('Service: $_selectedService'),
-            const SizedBox(height: 6),
-            Text('Pet: ${_petNameController.text.trim()} ($_petGender, $_petAge yrs, ${_breedController.text.trim()})'),
-            const SizedBox(height: 6),
-            Text('Owner: ${_ownerNameController.text.trim()} (${_phoneController.text.trim()})'),
-          ],
-        ),
+        content: Text('Your appointment at ${widget.clinicData['name']} has been securely saved to your phone!'),
         actions: [
           ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
             onPressed: () {
-              Navigator.pop(ctx); // Close dialog
-              Navigator.pop(context); // Return to Clinic Details
+              Navigator.pop(ctx);
+              Navigator.pop(context);
             },
             child: const Text('Done', style: TextStyle(color: Colors.white)),
           ),
@@ -183,12 +170,10 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
             if (_currentStep == 1) {
-              // If on Step 2, go back to Step 1
               setState(() {
                 _currentStep = 0;
               });
             } else {
-              // If on Step 1, completely close the page
               Navigator.pop(context);
             }
           },
@@ -205,9 +190,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     );
   }
 
-  // =========================================================
-  // SCREEN 3: CALENDAR & APPOINTMENT SLOT SELECTION
-  // =========================================================
   Widget _buildStep1DateSelection(Color primaryColor, Color cardBackground, Color textColor, bool isDark) {
     const List<String> monthNames = [
       'January', 'February', 'March', 'April', 'May', 'June',
@@ -217,7 +199,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Clinic Summary Card
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -254,7 +235,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
         ),
         const SizedBox(height: 20),
 
-        // Date Display & Picker Box
         Text(
           'Select Appointment Date',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor),
@@ -286,7 +266,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
               const Divider(thickness: 1),
               const SizedBox(height: 8),
 
-              // Calendar Days Quick Strip
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -343,7 +322,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
         ),
         const SizedBox(height: 20),
 
-        // Available Time Slots
         Text(
           'Select Time Slot',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor),
@@ -383,7 +361,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
         ),
         const SizedBox(height: 32),
 
-        // Next Button (to Screen 4)
         SizedBox(
           width: double.infinity,
           height: 52,
@@ -411,16 +388,12 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     );
   }
 
-  // =========================================================
-  // SCREEN 4: BOOKING FORM (OWNER & PET DETAILS)
-  // =========================================================
   Widget _buildStep2BookingForm(Color primaryColor, Color cardBackground, Color textColor, bool isDark) {
     return Form(
       key: _formKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Selected Date Pill (Clickable to open the calendar directly)
           const Text('Date :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
 
@@ -450,7 +423,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
           const SizedBox(height: 14),
 
-          // Service Dropdown
           const Text('Service(s) :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
           DropdownButtonFormField<String>(
@@ -470,7 +442,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
           const SizedBox(height: 14),
 
-          // Owner Name
           const Text('Owner Name :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
           TextFormField(
@@ -486,7 +457,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
           const SizedBox(height: 14),
 
-          // Phone Number
           const Text('Phone Number :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
           TextFormField(
@@ -503,15 +473,12 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
           const SizedBox(height: 20),
 
-          // Pet Details Section
           Text(
             'Pet Details :',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor),
           ),
           const Divider(thickness: 1.2),
           const SizedBox(height: 8),
-
-          // Pet Name
           const Text('Name :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
           TextFormField(
@@ -527,10 +494,8 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
           const SizedBox(height: 14),
 
-          // Pet Age & Gender Row
           Row(
             children: [
-              // Age Dropdown
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -557,7 +522,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
               ),
               const SizedBox(width: 16),
 
-              // Gender Toggle (F / M)
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -592,7 +556,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
           const SizedBox(height: 14),
 
-          // Breed
           const Text('Breed :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
           TextFormField(
@@ -608,7 +571,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
           const SizedBox(height: 28),
 
-          // Bottom Navigation Buttons [ Back | Confirm ]
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -620,7 +582,7 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
                 ),
                 onPressed: () {
                   setState(() {
-                    _currentStep = 0; // Return to Date selection
+                    _currentStep = 0;
                   });
                 },
                 child: Text('Back', style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold)),
