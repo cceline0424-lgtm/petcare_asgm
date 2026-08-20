@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:petcare_asgm/UserProfile/user_profile_page.dart';
 import 'package:petcare_asgm/VetClinic/vet_clinic_page.dart';
 import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
-import 'Map/stray_map_page.dart';
+import 'package:petcare_asgm/Map/stray_animal_map_page.dart';
 
 final ValueNotifier<bool> isDarkModeNotifier = ValueNotifier(false);
 
@@ -166,7 +166,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       const Center(child: Text('Pet Adoption Page', style: TextStyle(fontSize: 24))),
       const VetClinicPage(),
       const Center(child: Text('Home Page', style: TextStyle(fontSize: 24))),
-      const StrayMapPage(),
+      const StrayAnimalMapPage(),
       UserProfilePage(username: widget.username),
     ];
 

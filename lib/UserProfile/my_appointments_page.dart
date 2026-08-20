@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
-import 'dart:convert';
-
-import 'package:shared_preferences/shared_preferences.dart';
 
 class MyAppointmentsPage extends StatefulWidget {
   const MyAppointmentsPage({super.key});
@@ -26,7 +23,6 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
     final allAppointments = await AppointmentStorage.getAppointments();
     final DateTime today = DateTime.now();
     final DateTime todayDateOnly = DateTime(today.year, today.month, today.day);
-    bool needsStorageUpdate = false;
 
     for (var app in allAppointments) {
       if (app['status'] == 'Upcoming') {
@@ -37,18 +33,13 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
           int year = int.parse(dateParts[2]);
 
           DateTime appointmentDate = DateTime(year, month, day);
+
           if (appointmentDate.isBefore(todayDateOnly)) {
             app['status'] = 'Completed';
-            needsStorageUpdate = true;
+            await AppointmentStorage.updateAppointmentStatus(app['id'], 'Completed');
           }
         }
       }
-    }
-
-    if (needsStorageUpdate) {
-      final prefs = await SharedPreferences.getInstance();
-      List<String> updatedList = allAppointments.map((item) => jsonEncode(item)).toList();
-      await prefs.setStringList('my_booked_appointments', updatedList);
     }
 
     setState(() {

@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "tarc.edu.petcare_asgm"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -18,7 +18,7 @@ android {
     defaultConfig {
         applicationId = "tarc.edu.petcare_asgm"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -41,5 +41,15 @@ flutter {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+}
+
+subprojects {
+    afterEvaluate {
+        if (project.name == "camera_android_camerax") {
+            dependencies {
+                add("implementation", "androidx.concurrent:concurrent-futures:1.2.0")
+            }
+        }
+    }
 }

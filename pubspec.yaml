@@ -12,6 +12,11 @@ dependencies:
   excel: ^4.0.6
   http: ^1.2.0
   csv: ^6.0.0
+  sqflite: ^2.4.3
+  path: ^1.9.0
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
+  geolocator: ^13.0.0
   firebase_core: ^3.0.0
   cloud_firestore: ^5.0.0
   cupertino_icons: ^1.0.2
@@ -20,8 +25,6 @@ dependencies:
   path_provider: ^2.1.2         # For saving the image file
   flutter_local_notifications: ^22.3.0
   timezone: ^0.11.1
-  flutter_map: ^8.3.1
-  latlong2: ^0.10.1
   camera: ^0.12.0+2
 
 dev_dependencies:

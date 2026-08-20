@@ -1,43 +1,68 @@
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
 
 class AppointmentStorage {
-  static const String _key = 'my_booked_appointments';
+  static Database? _database;
+
+  static Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDB('petcare_appointments.db');
+    return _database!;
+  }
+
+  static Future<Database> _initDB(String filePath) async {
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, filePath);
+    return await openDatabase(path, version: 1, onCreate: _createDB);
+  }
+
+  // Define the table structure
+  static Future _createDB(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE appointments (
+        id TEXT PRIMARY KEY,
+        clinicName TEXT,
+        date TEXT,
+        time TEXT,
+        service TEXT,
+        petName TEXT,
+        status TEXT
+      )
+    ''');
+  }
 
   static Future<void> saveAppointment(Map<String, dynamic> appointmentData) async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> storedList = prefs.getStringList(_key) ?? [];
+    final db = await database;
 
     appointmentData['id'] = DateTime.now().millisecondsSinceEpoch.toString();
     appointmentData['status'] = 'Upcoming';
 
-    storedList.add(jsonEncode(appointmentData));
-    await prefs.setStringList(_key, storedList);
+    await db.insert('appointments', appointmentData);
   }
 
   static Future<List<Map<String, dynamic>>> getAppointments() async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> storedList = prefs.getStringList(_key) ?? [];
-
-    return storedList.map((item) => jsonDecode(item) as Map<String, dynamic>).toList();
+    final db = await database;
+    final result = await db.query('appointments');
+    return result.map((map) => Map<String, dynamic>.from(map)).toList();
   }
 
   static Future<void> cancelAppointment(String id) async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> storedList = prefs.getStringList(_key) ?? [];
+    final db = await database;
+    await db.update(
+      'appointments',
+      {'status': 'Cancelled'},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 
-    List<Map<String, dynamic>> appointments = storedList
-        .map((item) => jsonDecode(item) as Map<String, dynamic>)
-        .toList();
-
-    for (var app in appointments) {
-      if (app['id'] == id) {
-        app['status'] = 'Cancelled';
-        break;
-      }
-    }
-
-    List<String> updatedList = appointments.map((item) => jsonEncode(item)).toList();
-    await prefs.setStringList(_key, updatedList);
+  static Future<void> updateAppointmentStatus(String id, String status) async {
+    final db = await database;
+    await db.update(
+      'appointments',
+      {'status': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }
