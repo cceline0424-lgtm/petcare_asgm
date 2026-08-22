@@ -42,8 +42,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
     setState(() {
       _nameCtrl.text = pref.getString('name') ?? widget.username;
-      _emailCtrl.text = pref.getString('email') ?? "Not set";
-      _contactCtrl.text = pref.getString('contact') ?? "Not set";
+      _emailCtrl.text = pref.getString('email') ?? "";
+      _contactCtrl.text = pref.getString('contact') ?? "";
     });
 
     final appDataDir = await getApplicationDocumentsDirectory();
@@ -165,7 +165,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       _loadProfileInfo();
                       Navigator.pop(context);
                     },
-                    child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                    child: const Text('Cancel', style: TextStyle(color: Colors.red)),
                   ),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.brown[700]),

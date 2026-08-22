@@ -27,13 +27,11 @@ class PetHealthCareApp extends StatelessWidget {
         return MaterialApp(
           title: 'Pet Health Care',
           debugShowCheckedModeBanner: false,
-
           theme: ThemeData(
             brightness: Brightness.light,
             primarySwatch: Colors.brown,
             scaffoldBackgroundColor: Colors.white,
           ),
-
           darkTheme: ThemeData(
             brightness: Brightness.dark,
             primarySwatch: Colors.brown,
@@ -41,7 +39,6 @@ class PetHealthCareApp extends StatelessWidget {
             cardColor: Colors.grey[850],
           ),
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-
           home: const MainNavigationScreen(username: 'User'),
         );
       },
@@ -70,18 +67,77 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     _checkUpcomingAppointments();
   }
 
+  DateTime? _parseDateTime(String dateStr, String timeStr) {
+    try {
+      final dateParts = dateStr.split('/');
+      int day = int.parse(dateParts[0]);
+      int month = int.parse(dateParts[1]);
+      int year = int.parse(dateParts[2]);
+
+      final timeParts = timeStr.split(' ');
+      final hm = timeParts[0].split(':');
+      int hour = int.parse(hm[0]);
+      int minute = int.parse(hm[1]);
+      if (timeParts.length > 1) {
+        if (timeParts[1].toUpperCase() == 'PM' && hour != 12) hour += 12;
+        if (timeParts[1].toUpperCase() == 'AM' && hour == 12) hour = 0;
+      }
+
+      return DateTime(year, month, day, hour, minute);
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<void> _checkUpcomingAppointments() async {
     final appointments = await AppointmentStorage.getAppointments();
+    final prefs = await SharedPreferences.getInstance();
 
-    final upcomingList = appointments.where((app) => app['status'] == 'Upcoming').toList();
+    Map<String, dynamic>? validUpcomingApp;
 
-    if (upcomingList.isNotEmpty) {
+    for (var app in appointments) {
+      if (app['status'] == 'Upcoming' || app['status'] == 'Pending') {
+        final appDate = _parseDateTime(app['date'] ?? '', app['time'] ?? '');
+
+        if (appDate != null && appDate.isAfter(DateTime.now())) {
+          validUpcomingApp = app;
+          break;
+        }
+      }
+    }
+
+    if (validUpcomingApp != null) {
       if (mounted) {
         setState(() {
-          _upcomingAppointment = upcomingList.last;
-          _hasNewNotifications = true;
+          _upcomingAppointment = validUpcomingApp;
+
+          String appId = '${validUpcomingApp!['date']}_${validUpcomingApp['time']}';
+          String lastSeenId = prefs.getString('last_seen_notification') ?? '';
+
+          if (appId != lastSeenId) {
+            _hasNewNotifications = true;
+          }
         });
       }
+    } else {
+      if (mounted) {
+        setState(() {
+          _upcomingAppointment = null;
+          _hasNewNotifications = false;
+        });
+      }
+    }
+  }
+
+  void _markNotificationsAsRead() async {
+    setState(() {
+      _hasNewNotifications = false;
+    });
+
+    if (_upcomingAppointment != null) {
+      final prefs = await SharedPreferences.getInstance();
+      String appId = '${_upcomingAppointment!['date']}_${_upcomingAppointment!['time']}';
+      await prefs.setString('last_seen_notification', appId);
     }
   }
 
@@ -175,7 +231,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 3,
         shadowColor: Colors.brown.withValues(alpha: 0.3),
-
         leading: Padding(
           padding: const EdgeInsets.all(8.0),
           child: Container(
@@ -191,7 +246,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ),
         ),
         titleSpacing: 0,
-
         title: Text(
           'Pet Health Care',
           style: TextStyle(
@@ -201,7 +255,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             letterSpacing: 0.5,
           ),
         ),
-
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12.0),
@@ -215,14 +268,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     size: 28,
                   ),
                   onPressed: () {
-                    setState(() {
-                      _hasNewNotifications = false;
-                    });
-
+                    _markNotificationsAsRead();
                     _showNotificationTray(context, isDark);
                   },
                 ),
-
                 if (_hasNewNotifications)
                   Positioned(
                     right: 12,
@@ -241,9 +290,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ),
         ],
       ),
-
       body: pages[_currentIndex],
-
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.brown[700],
         elevation: isHomeSelected ? 6 : 0,
@@ -259,9 +306,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           color: isHomeSelected ? Colors.white : Colors.white54,
         ),
       ),
-
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-
       bottomNavigationBar: BottomAppBar(
         color: Colors.brown[700],
         shape: const CircularNotchedRectangle(),
@@ -287,9 +332,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 ),
                 onPressed: () => setState(() => _currentIndex = 1),
               ),
-
               const SizedBox(width: 48.0),
-
               IconButton(
                 icon: Icon(
                   Icons.map,
