@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:petcare_asgm/Auth/auth_service.dart';
 import 'package:petcare_asgm/Auth/database_helper.dart';
+import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
 
 class AdoptionFormPage extends StatefulWidget {
   final Map<String, dynamic> petData;
@@ -122,8 +123,10 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
             style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
             onPressed: () {
               Navigator.pop(ctx);
-              Navigator.pop(context);
-              Navigator.pop(context);
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => const PetInfoPage()),
+                    (route) => route.isFirst,
+              );
             },
             child: const Text('View Dashboard', style: TextStyle(color: Colors.white)),
           ),
@@ -176,6 +179,9 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
                 const SizedBox(height: 6),
                 TextFormField(
                   controller: _adopterNameController,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r"[a-zA-Z\s\-\']")),
+                  ],
                   decoration: InputDecoration(
                     hintText: 'e.g. Siti Nurhaliza',
                     filled: true,
