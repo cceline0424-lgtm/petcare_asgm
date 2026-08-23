@@ -25,6 +25,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
   String _weatherDescription = 'Loading...';
   IconData _weatherIcon = Icons.hourglass_empty;
   String _currentAddress = 'Fetching location...';
+  bool _isNightMode = false;
 
   final List<StrayAnimalRecord> _strayRecords = [];
 
@@ -135,6 +136,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
             setState(() {
               _weatherDescription = englishDesc;
               _weatherIcon = icon;
+              _isNightMode = isNight;
             });
           }
           return;
@@ -148,6 +150,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
       setState(() {
         _weatherDescription = fallbackNight ? 'Clear' : 'Sunny';
         _weatherIcon = fallbackNight ? Icons.nights_stay : Icons.wb_sunny;
+        _isNightMode = fallbackNight;
       });
     }
   }
@@ -649,10 +652,24 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
               ),
             ),
             children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.petcare_app',
-              ),
+              if (_isNightMode)
+                ColorFiltered(
+                  colorFilter: const ColorFilter.matrix([
+                    -0.85, 0.0, 0.0, 0.0, 220.0,
+                    0.0, -0.85, 0.0, 0.0, 230.0,
+                    0.0, 0.0, -0.85, 0.0, 255.0,
+                    0.0, 0.0, 0.0, 1.0, 0.0,
+                  ]),
+                  child: TileLayer(
+                    urlTemplate: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+                    userAgentPackageName: 'com.example.petcare_app',
+                  ),
+                )
+              else
+                TileLayer(
+                  urlTemplate: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+                  userAgentPackageName: 'com.example.petcare_app',
+                ),
               MarkerLayer(
                 markers: [
                   ..._strayRecords.map((record) {
@@ -679,7 +696,6 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                       ),
                     );
                   }),
-
                   Marker(
                     point: _myCurrentLocation!,
                     width: 50,

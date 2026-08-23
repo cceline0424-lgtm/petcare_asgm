@@ -5,6 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:petcare_asgm/UserProfile/setting.dart';
 import 'package:petcare_asgm/UserProfile/my_appointments_page.dart';
+import 'package:petcare_asgm/Auth/auth_service.dart';
+import 'package:petcare_asgm/Auth/welcome_page.dart';
+import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
 
 class UserProfilePage extends StatefulWidget {
   final String username;
@@ -183,6 +186,51 @@ class _UserProfilePageState extends State<UserProfilePage> {
     );
   }
 
+  /// Shows a confirmation dialog, then clears the saved login session
+  /// and sends the user back to the WelcomePage, removing every
+  /// route underneath so they can't navigate back into the app.
+  Future<void> _logout() async {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: isDark ? Colors.grey[850] : Colors.white,
+          title: Text(
+            'Log Out',
+            style: TextStyle(color: isDark ? Colors.white : Colors.black),
+          ),
+          content: Text(
+            'Are you sure you want to log out?',
+            style: TextStyle(color: isDark ? Colors.grey[300] : Colors.grey[800]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Log Out', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    await AuthService.logout();
+
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const WelcomePage()),
+          (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     bool isDark = Theme.of(context).brightness == Brightness.dark;
@@ -247,7 +295,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
         const SizedBox(height: 30),
 
-        _buildProfileMenuItem(Icons.pets, 'Pet info', () {}, isDark: isDark),
+        _buildProfileMenuItem(Icons.pets, 'Pet info', () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const PetInfoPage()),
+          );
+        }, isDark: isDark),
         _buildProfileMenuItem(Icons.calendar_today, 'Appointment', () {
           Navigator.push(
             context,
@@ -266,7 +319,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         _buildProfileMenuItem(
           Icons.logout,
           'Log out',
-              () {},
+          _logout,
           isDark: isDark,
           itemColor: isDark ? Colors.redAccent : Colors.red,
         ),
