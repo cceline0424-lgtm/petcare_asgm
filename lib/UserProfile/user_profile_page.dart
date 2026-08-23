@@ -1,13 +1,18 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+
 import 'package:petcare_asgm/UserProfile/setting.dart';
 import 'package:petcare_asgm/UserProfile/my_appointments_page.dart';
 import 'package:petcare_asgm/Auth/auth_service.dart';
 import 'package:petcare_asgm/Auth/welcome_page.dart';
 import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
+import 'package:petcare_asgm/Auth/database_helper.dart';
+import 'package:petcare_asgm/Auth/email_service.dart';
 
 class UserProfilePage extends StatefulWidget {
   final String username;
@@ -23,6 +28,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   final _contactCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
 
+  String _originalEmail = "";
   File? _image;
   final _picker = ImagePicker();
 
@@ -42,15 +48,30 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   Future<void> _loadProfileInfo() async {
     final pref = await SharedPreferences.getInstance();
+    final currentUser = await AuthService.getLoggedInUsername() ?? widget.username;
+    final dbUser = await DatabaseHelper.instance.getUserByUsername(currentUser);
 
     setState(() {
-      _nameCtrl.text = pref.getString('name') ?? widget.username;
-      _emailCtrl.text = pref.getString('email') ?? "";
-      _contactCtrl.text = pref.getString('contact') ?? "";
+      if (dbUser != null) {
+        _nameCtrl.text = pref.getString('name_$currentUser') ?? dbUser['name'] ?? currentUser;
+        _emailCtrl.text = pref.getString('email_$currentUser') ?? dbUser['email'] ?? "";
+
+        String rawContact = dbUser['phone'] ?? "";
+        if (rawContact.startsWith('+60')) {
+          rawContact = rawContact.substring(3);
+        }
+        _contactCtrl.text = pref.getString('contact_$currentUser') ?? rawContact;
+      } else {
+        _nameCtrl.text = pref.getString('name_$currentUser') ?? currentUser;
+        _emailCtrl.text = pref.getString('email_$currentUser') ?? "";
+        _contactCtrl.text = pref.getString('contact_$currentUser') ?? "";
+      }
+
+      _originalEmail = _emailCtrl.text.trim();
     });
 
     final appDataDir = await getApplicationDocumentsDirectory();
-    final imagePath = '${appDataDir.path}/profile.png';
+    final imagePath = '${appDataDir.path}/profile_$currentUser.png';
     final file = File(imagePath);
 
     if (await file.exists()) {
@@ -60,30 +81,181 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
   }
 
-  Future<void> _saveProfileInfo() async {
+  Future<void> _performSave() async {
     final pref = await SharedPreferences.getInstance();
+    final currentUser = await AuthService.getLoggedInUsername() ?? widget.username;
 
-    pref.setString('name', _nameCtrl.text);
-    pref.setString('email', _emailCtrl.text);
-    pref.setString('contact', _contactCtrl.text);
+    String phoneToSave = _contactCtrl.text.trim();
+    String dbPhone = phoneToSave.startsWith('+60') ? phoneToSave : '+60$phoneToSave';
 
-    if (_image != null) {
-      final appDataDir = await getApplicationDocumentsDirectory();
-      final imagePath = '${appDataDir.path}/profile.png';
-      try {
-        _image!.copy(imagePath);
-      } catch (e) {
-        print('Error : ${e.toString()}');
+    try {
+      await DatabaseHelper.instance.updateUserProfile(
+        currentUser,
+        _nameCtrl.text.trim(),
+        _emailCtrl.text.trim(),
+        dbPhone,
+      );
+
+      pref.setString('name_$currentUser', _nameCtrl.text);
+      pref.setString('email_$currentUser', _emailCtrl.text);
+      pref.setString('contact_$currentUser', _contactCtrl.text);
+
+      if (_image != null) {
+        final appDataDir = await getApplicationDocumentsDirectory();
+        final imagePath = '${appDataDir.path}/profile_$currentUser.png';
+        try {
+          await _image!.copy(imagePath);
+        } catch (e) {}
+      }
+
+      setState(() {
+        _originalEmail = _emailCtrl.text.trim();
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile Info Saved successfully!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error: Email or Phone is already taken by another account.')),
+        );
+        _loadProfileInfo();
       }
     }
+  }
 
-    setState(() {});
+  Future<void> _sendOtpAndShowDialog(String newEmail) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator(color: Colors.brown)),
+    );
 
-    if (mounted) {
+    final random = Random();
+    String generatedOtp = (100000 + random.nextInt(900000)).toString();
+
+    final sent = await EmailService.sendOtpEmail(recipientEmail: newEmail, otp: generatedOtp);
+
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    if (sent) {
+      _showOtpVerificationDialog(newEmail, generatedOtp);
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile Info Saved')),
+        const SnackBar(content: Text('Failed to send verification email. Please try again.')),
       );
+      _showEditProfileDialog();
     }
+  }
+
+  void _showOtpVerificationDialog(String newEmail, String initialOtp) {
+    final TextEditingController otpController = TextEditingController();
+    bool isConfirming = false;
+    String currentOtp = initialOtp;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        bool isDark = Theme.of(context).brightness == Brightness.dark;
+        Color textColor = isDark ? Colors.white : Colors.black;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: isDark ? Colors.grey[850] : Colors.white,
+              title: Text('Verify Email', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Enter the 6-digit code sent to $newEmail',
+                    style: TextStyle(fontSize: 13, color: isDark ? Colors.grey[400] : Colors.grey[700]),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: otpController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    style: TextStyle(letterSpacing: 8, fontSize: 18, color: textColor, fontWeight: FontWeight.bold),
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    textAlign: TextAlign.center,
+                    decoration: InputDecoration(
+                      hintText: 'XXXXXX',
+                      hintStyle: const TextStyle(letterSpacing: 4),
+                      filled: true,
+                      fillColor: isDark ? Colors.grey[900] : Colors.grey[100],
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      counterText: '',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () async {
+                        setDialogState(() => isConfirming = true);
+
+                        final random = Random();
+                        currentOtp = (100000 + random.nextInt(900000)).toString();
+                        final sent = await EmailService.sendOtpEmail(recipientEmail: newEmail, otp: currentOtp);
+
+                        if (sent) {
+                          setDialogState(() => isConfirming = false);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('A new code has been sent.')));
+                          }
+                        } else {
+                          setDialogState(() => isConfirming = false);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to resend code.')));
+                          }
+                        }
+                      },
+                      child: const Text(
+                        'Resend code',
+                        style: TextStyle(color: Colors.brown, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  )
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _showEditProfileDialog();
+                  },
+                  child: const Text('Cancel', style: TextStyle(color: Colors.red)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.brown[700],
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+                  ),
+                  onPressed: isConfirming ? null : () {
+                    if (otpController.text.trim() == currentOtp) {
+                      Navigator.pop(context);
+                      _performSave();
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Incorrect code. Please try again.')));
+                    }
+                  },
+                  child: isConfirming
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Verify', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _getImage(StateSetter setDialogState) async {
@@ -148,12 +320,45 @@ class _UserProfilePageState extends State<UserProfilePage> {
                         decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
                       ),
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: _contactCtrl,
-                        decoration: const InputDecoration(labelText: 'Contact Number', border: OutlineInputBorder()),
-                        keyboardType: TextInputType.phone,
+
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            height: 56,
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            decoration: BoxDecoration(
+                              color: isDark ? Colors.grey[800] : Colors.grey[200],
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.grey.withValues(alpha: 0.6)),
+                            ),
+                            child: Text(
+                                '🇲🇾 +60',
+                                style: TextStyle(
+                                    color: isDark ? Colors.white : Colors.black87,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16
+                                )
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _contactCtrl,
+                              keyboardType: TextInputType.phone,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              decoration: const InputDecoration(
+                                labelText: 'Phone Number',
+                                border: OutlineInputBorder(),
+                                hintText: '123456789',
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
+
                       TextField(
                         controller: _emailCtrl,
                         decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
@@ -173,8 +378,15 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.brown[700]),
                     onPressed: () {
-                      _saveProfileInfo();
+                      final newEmail = _emailCtrl.text.trim();
+
                       Navigator.pop(context);
+
+                      if (newEmail.isNotEmpty && newEmail != _originalEmail) {
+                        _sendOtpAndShowDialog(newEmail);
+                      } else {
+                        _performSave();
+                      }
                     },
                     child: const Text('Save', style: TextStyle(color: Colors.white)),
                   ),
@@ -186,9 +398,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
     );
   }
 
-  /// Shows a confirmation dialog, then clears the saved login session
-  /// and sends the user back to the WelcomePage, removing every
-  /// route underneath so they can't navigate back into the app.
   Future<void> _logout() async {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -237,22 +446,31 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
     Color primaryColor = isDark ? Colors.white : Colors.brown[800]!;
     Color subTextColor = isDark ? Colors.grey[400]! : Colors.grey[700]!;
+    Color cardBgColor = isDark ? Colors.grey[850]! : Colors.white;
     Color borderColor = isDark ? Colors.brown[300]! : Colors.brown;
 
     return ListView(
       padding: const EdgeInsets.all(16.0),
       children: [
         Container(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(18.0),
           decoration: BoxDecoration(
-            border: Border.all(color: borderColor, width: 2),
-            borderRadius: BorderRadius.circular(12),
+            color: cardBgColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor.withValues(alpha: 0.3), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               CircleAvatar(
-                radius: 35,
+                radius: 38,
                 backgroundColor: Colors.brown,
                 backgroundImage: _image != null ? FileImage(_image!) : null,
                 child: _image == null
@@ -267,27 +485,52 @@ class _UserProfilePageState extends State<UserProfilePage> {
                     Text(
                       _nameCtrl.text.isEmpty ? widget.username : _nameCtrl.text,
                       style: TextStyle(
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: primaryColor,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(Icons.phone_outlined, size: 14, color: subTextColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _contactCtrl.text.isEmpty ? "Not set" : '+60${_contactCtrl.text}',
+                            style: TextStyle(fontSize: 13, color: subTextColor),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      _contactCtrl.text.isEmpty ? "Not set" : _contactCtrl.text,
-                      style: TextStyle(fontSize: 14, color: subTextColor),
-                    ),
-                    Text(
-                      _emailCtrl.text.isEmpty ? "Not set" : _emailCtrl.text,
-                      style: TextStyle(fontSize: 14, color: subTextColor),
+                    Row(
+                      children: [
+                        Icon(Icons.email_outlined, size: 14, color: subTextColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _emailCtrl.text.isEmpty ? "Not set" : _emailCtrl.text,
+                            style: TextStyle(fontSize: 13, color: subTextColor),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
               IconButton(
-                icon: Icon(Icons.edit, color: primaryColor),
+                icon: Icon(Icons.edit_outlined, color: primaryColor, size: 22),
                 onPressed: _showEditProfileDialog,
                 tooltip: 'Edit Profile',
+                constraints: const BoxConstraints(),
+                padding: EdgeInsets.zero,
               ),
             ],
           ),
@@ -314,7 +557,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           );
         }, isDark: isDark),
 
-        Divider(color: borderColor, thickness: 1),
+        Divider(color: borderColor.withValues(alpha: 0.3), thickness: 1),
 
         _buildProfileMenuItem(
           Icons.logout,

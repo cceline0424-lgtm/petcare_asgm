@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
-
 import 'package:petcare_asgm/Auth/auth_service.dart';
 
 class PetRecord {
@@ -198,7 +197,7 @@ class _PetInfoPageState extends State<PetInfoPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: selectedGender,
+                      initialValue: selectedGender,
                       decoration: const InputDecoration(labelText: 'Gender', border: OutlineInputBorder()),
                       items: ['Male', 'Female', 'Unknown'].map((String value) {
                         return DropdownMenuItem<String>(

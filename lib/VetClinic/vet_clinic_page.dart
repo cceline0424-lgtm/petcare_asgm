@@ -21,19 +21,22 @@ class _VetClinicPageState extends State<VetClinicPage> {
 
   final List<String> _malaysiaStates = [
     'All States',
-    'W.P. Kuala Lumpur',
-    'Selangor',
     'Johor',
-    'Pulau Pinang',
-    'Perak',
+    'Kedah',
+    'Kelantan',
     'Melaka',
     'Negeri Sembilan',
     'Pahang',
-    'Kedah',
-    'Kelantan',
-    'Terengganu',
+    'Perak',
+    'Perlis',
+    'Pulau Pinang',
     'Sabah',
     'Sarawak',
+    'Selangor',
+    'Terengganu',
+    'W.P. Kuala Lumpur',
+    'W.P. Labuan',
+    'W.P. Putrajaya',
   ];
 
   final List<String> _clinicPhotos = [
@@ -135,19 +138,24 @@ class _VetClinicPageState extends State<VetClinicPage> {
 
   String _guessStateFromAddress(String address) {
     String addr = address.toLowerCase();
-    if (addr.contains('kuala lumpur') || addr.contains('w.p.')) return 'W.P. Kuala Lumpur';
-    if (addr.contains('selangor') || addr.contains('petaling')) return 'Selangor';
-    if (addr.contains('pulau pinang') || addr.contains('penang') || addr.contains('georgetown')) return 'Pulau Pinang';
-    if (addr.contains('johor')) return 'Johor';
-    if (addr.contains('perak')) return 'Perak';
-    if (addr.contains('melaka')) return 'Melaka';
-    if (addr.contains('negeri sembilan')) return 'Negeri Sembilan';
-    if (addr.contains('pahang')) return 'Pahang';
-    if (addr.contains('kedah')) return 'Kedah';
-    if (addr.contains('kelantan')) return 'Kelantan';
-    if (addr.contains('terengganu')) return 'Terengganu';
-    if (addr.contains('sabah')) return 'Sabah';
-    if (addr.contains('sarawak')) return 'Sarawak';
+
+    if (addr.contains('kuala lumpur') || addr.contains('kl') || addr.contains('setapak')) return 'W.P. Kuala Lumpur';
+    if (addr.contains('putrajaya')) return 'W.P. Putrajaya';
+    if (addr.contains('labuan')) return 'W.P. Labuan';
+    if (addr.contains('selangor') || addr.contains('petaling') || addr.contains('shah alam') || addr.contains('klang') || addr.contains('subang')) return 'Selangor';
+    if (addr.contains('pulau pinang') || addr.contains('penang') || addr.contains('georgetown') || addr.contains('butterworth')) return 'Pulau Pinang';
+    if (addr.contains('johor') || addr.contains('jb') || addr.contains('skudai') || addr.contains('batu pahat')) return 'Johor';
+    if (addr.contains('perak') || addr.contains('ipoh') || addr.contains('taiping')) return 'Perak';
+    if (addr.contains('melaka') || addr.contains('malacca')) return 'Melaka';
+    if (addr.contains('negeri sembilan') || addr.contains('seremban') || addr.contains('nilai')) return 'Negeri Sembilan';
+    if (addr.contains('pahang') || addr.contains('kuantan')) return 'Pahang';
+    if (addr.contains('kedah') || addr.contains('alor setar') || addr.contains('sungai petani')) return 'Kedah';
+    if (addr.contains('kelantan') || addr.contains('kota bharu')) return 'Kelantan';
+    if (addr.contains('terengganu') || addr.contains('kuala terengganu')) return 'Terengganu';
+    if (addr.contains('perlis') || addr.contains('kangar')) return 'Perlis';
+    if (addr.contains('sabah') || addr.contains('kota kinabalu')) return 'Sabah';
+    if (addr.contains('sarawak') || addr.contains('kuching') || addr.contains('miri')) return 'Sarawak';
+
     return 'All States';
   }
 

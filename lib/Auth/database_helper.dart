@@ -55,6 +55,20 @@ class DatabaseHelper {
     );
   }
 
+  Future<int> updateUserProfile(String username, String name, String email, String phone) async {
+    final db = await instance.database;
+    return await db.update(
+      'users',
+      {
+        'name': name,
+        'email': email,
+        'phone': phone,
+      },
+      where: 'username = ?',
+      whereArgs: [username],
+    );
+  }
+
   Future<Map<String, dynamic>?> getUserByUsername(String username) async {
     final db = await instance.database;
     final results = await db.query('users', where: 'username = ?', whereArgs: [username], limit: 1);

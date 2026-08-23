@@ -1,68 +1,61 @@
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:petcare_asgm/Auth/auth_service.dart';
 
 class AppointmentStorage {
-  static Database? _database;
 
-  static Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDB('petcare_appointments.db');
-    return _database!;
-  }
-
-  static Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
-    return await openDatabase(path, version: 1, onCreate: _createDB);
-  }
-
-  // Define the table structure
-  static Future _createDB(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE appointments (
-        id TEXT PRIMARY KEY,
-        clinicName TEXT,
-        date TEXT,
-        time TEXT,
-        service TEXT,
-        petName TEXT,
-        status TEXT
-      )
-    ''');
+  static Future<String?> _getStorageKey() async {
+    final username = await AuthService.getLoggedInUsername();
+    if (username == null) return null;
+    return 'user_appointments_$username';
   }
 
   static Future<void> saveAppointment(Map<String, dynamic> appointmentData) async {
-    final db = await database;
+    final key = await _getStorageKey();
+    if (key == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> appointmentsJson = prefs.getStringList(key) ?? [];
 
     appointmentData['id'] = DateTime.now().millisecondsSinceEpoch.toString();
     appointmentData['status'] = 'Upcoming';
 
-    await db.insert('appointments', appointmentData);
+    appointmentsJson.add(jsonEncode(appointmentData));
+    await prefs.setStringList(key, appointmentsJson);
   }
 
   static Future<List<Map<String, dynamic>>> getAppointments() async {
-    final db = await database;
-    final result = await db.query('appointments');
-    return result.map((map) => Map<String, dynamic>.from(map)).toList();
+    final key = await _getStorageKey();
+    if (key == null) return [];
+
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> appointmentsJson = prefs.getStringList(key) ?? [];
+
+    return appointmentsJson.map((str) {
+      return Map<String, dynamic>.from(jsonDecode(str));
+    }).toList();
   }
 
   static Future<void> cancelAppointment(String id) async {
-    final db = await database;
-    await db.update(
-      'appointments',
-      {'status': 'Cancelled'},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await updateAppointmentStatus(id, 'Cancelled');
   }
 
   static Future<void> updateAppointmentStatus(String id, String status) async {
-    final db = await database;
-    await db.update(
-      'appointments',
-      {'status': status},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final key = await _getStorageKey();
+    if (key == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> appointmentsJson = prefs.getStringList(key) ?? [];
+
+    List<String> updatedList = [];
+    for (String jsonStr in appointmentsJson) {
+      final Map<String, dynamic> data = jsonDecode(jsonStr);
+      if (data['id'] == id) {
+        data['status'] = status;
+      }
+      updatedList.add(jsonEncode(data));
+    }
+
+    await prefs.setStringList(key, updatedList);
   }
 }

@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:petcare_asgm/Home/home_page.dart';
-
 import 'package:petcare_asgm/UserProfile/user_profile_page.dart';
 import 'package:petcare_asgm/VetClinic/vet_clinic_page.dart';
 import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
 import 'package:petcare_asgm/Map/stray_animal_map_page.dart';
 import 'package:petcare_asgm/Auth/welcome_page.dart';
 import 'package:petcare_asgm/Auth/auth_service.dart';
-
 import 'package:petcare_asgm/PetAdoption/pet_adoption_page.dart';
 
 final ValueNotifier<bool> isDarkModeNotifier = ValueNotifier(false);
@@ -144,6 +141,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     void _showNotificationTray(BuildContext context, bool isDark) {
       showModalBottomSheet(
           context: context,
+          isScrollControlled: true, // Fix 1: allows sheet to be taller than 50%
           backgroundColor: isDark ? Colors.grey[900] : Colors.white,
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -152,61 +150,65 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             Color textColor = isDark ? Colors.white : Colors.brown[800]!;
             Color subtitleColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
 
-            return Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            return SafeArea( // Fix 2: keeps it off the Android nav bar
+              child: SingleChildScrollView( // Fix 3: allows scrolling so it never overflows
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Notifications',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Notifications',
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Close', style: TextStyle(color: Colors.red)),
+                          )
+                        ],
                       ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Close', style: TextStyle(color: Colors.red)),
-                      )
+                      const Divider(),
+
+                      if (_upcomingAppointment != null)
+                        ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Colors.brown[100],
+                            child: Icon(Icons.calendar_month, color: Colors.brown[800]),
+                          ),
+                          title: Text(
+                              'Appointment Reminder',
+                              style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
+                          ),
+                          subtitle: Text(
+                              'Your vet visit at ${_upcomingAppointment!['clinicName']} is coming up on ${_upcomingAppointment!['date']} at ${_upcomingAppointment!['time']}.',
+                              style: TextStyle(color: subtitleColor)
+                          ),
+                        ),
+
+                      ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.red[100],
+                          child: const Icon(Icons.location_pin, color: Colors.red),
+                        ),
+                        title: Text('Stray Map Alert', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                        subtitle: Text('A new stray animal was reported nearby. Tap to view the location.', style: TextStyle(color: subtitleColor)),
+                      ),
+
+                      ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.green[100],
+                          child: const Icon(Icons.local_offer, color: Colors.green),
+                        ),
+                        title: Text('Welcome to U Pet!', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                        subtitle: Text('Complete your profile to get full access to all features.', style: TextStyle(color: subtitleColor)),
+                      ),
                     ],
                   ),
-                  const Divider(),
-
-                  if (_upcomingAppointment != null)
-                    ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.brown[100],
-                        child: Icon(Icons.calendar_month, color: Colors.brown[800]),
-                      ),
-                      title: Text(
-                          'Appointment Reminder',
-                          style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
-                      ),
-                      subtitle: Text(
-                          'Your vet visit at ${_upcomingAppointment!['clinicName']} is coming up on ${_upcomingAppointment!['date']} at ${_upcomingAppointment!['time']}.',
-                          style: TextStyle(color: subtitleColor)
-                      ),
-                    ),
-
-                  ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.red[100],
-                      child: const Icon(Icons.location_pin, color: Colors.red),
-                    ),
-                    title: Text('Stray Map Alert', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                    subtitle: Text('A new stray animal was reported nearby. Tap to view the location.', style: TextStyle(color: subtitleColor)),
-                  ),
-
-                  ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.green[100],
-                      child: const Icon(Icons.local_offer, color: Colors.green),
-                    ),
-                    title: Text('Welcome to U Pet!', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                    subtitle: Text('Complete your profile to get full access to all features.', style: TextStyle(color: subtitleColor)),
-                  ),
-                ],
+                ),
               ),
             );
           }

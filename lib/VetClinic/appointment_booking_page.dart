@@ -1,5 +1,11 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
+import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
+import 'package:petcare_asgm/Auth/auth_service.dart';
+import 'package:petcare_asgm/Auth/database_helper.dart';
 
 class AppointmentBookingPage extends StatefulWidget {
   final Map<String, dynamic> clinicData;
@@ -39,21 +45,88 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
 
   final TextEditingController _ownerNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _petNameController = TextEditingController();
-  final TextEditingController _breedController = TextEditingController();
-
-  int _petAge = 1;
-  String _petGender = 'F';
 
   final _formKey = GlobalKey<FormState>();
+
+  List<PetRecord> _myPets = [];
+  PetRecord? _selectedPet;
+  bool _isLoadingPets = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPets();
+    _loadUserProfileData();
+  }
 
   @override
   void dispose() {
     _ownerNameController.dispose();
     _phoneController.dispose();
-    _petNameController.dispose();
-    _breedController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadUserProfileData() async {
+    final username = await AuthService.getLoggedInUsername();
+    if (username != null) {
+      final user = await DatabaseHelper.instance.getUserByUsername(username);
+      if (user != null && mounted) {
+        setState(() {
+          String rawContact = user['phone'] ?? '';
+          if (rawContact.startsWith('+60')) {
+            rawContact = rawContact.substring(3);
+          }
+          _phoneController.text = rawContact;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadPets() async {
+    setState(() {
+      _isLoadingPets = true;
+    });
+
+    final currentUser = await AuthService.getLoggedInUsername();
+    if (currentUser == null) {
+      if (mounted) setState(() => _isLoadingPets = false);
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? manualPetsJson = prefs.getStringList('my_pets_$currentUser');
+    final List<String>? adoptedPetsJson = prefs.getStringList('user_adopted_pets_$currentUser');
+
+    List<PetRecord> loadedPets = [];
+
+    if (manualPetsJson != null) {
+      for (String jsonStr in manualPetsJson) {
+        try {
+          loadedPets.add(PetRecord.fromJson(jsonDecode(jsonStr)));
+        } catch (e) {}
+      }
+    }
+
+    if (adoptedPetsJson != null) {
+      for (String jsonStr in adoptedPetsJson) {
+        try {
+          final data = jsonDecode(jsonStr);
+          data['isAdopted'] = true;
+          data['age'] = data['age']?.toString().replaceAll(' Years', '').replaceAll(' Year', '').replaceAll(' Months', '');
+          loadedPets.add(PetRecord.fromJson(data));
+        } catch (e) {}
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _myPets = loadedPets;
+        if (_myPets.isNotEmpty) {
+          _selectedPet = _myPets.first;
+        }
+        _isLoadingPets = false;
+      });
+    }
   }
 
   Future<void> _pickCustomDate(Color primaryColor) async {
@@ -108,13 +181,20 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
   void _submitAppointment(Color primaryColor) async {
     if (!_formKey.currentState!.validate()) return;
 
-    // 1. Prepare the data
+    if (_selectedPet == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a pet for the appointment.')),
+      );
+      return;
+    }
+
     Map<String, dynamic> newAppointment = {
       'clinicName': widget.clinicData['name'],
       'date': '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}',
       'time': _selectedTimeSlot,
       'service': _selectedService,
-      'petName': _petNameController.text.trim(),
+      'petName': _selectedPet!.name,
+      'ownerName': _ownerNameController.text.trim(),
     };
 
     await AppointmentStorage.saveAppointment(newAppointment);
@@ -153,6 +233,7 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     final Color primaryColor = isDark ? Colors.white : Colors.brown[800]!;
     final Color cardBackground = isDark ? Colors.grey[850]! : Colors.white;
     final Color textColor = isDark ? Colors.grey[200]! : Colors.brown[900]!;
+    final Color lockedFieldColor = isDark ? Colors.grey[900]! : Colors.grey[200]!;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -184,7 +265,7 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           padding: const EdgeInsets.all(16.0),
           child: _currentStep == 0
               ? _buildStep1DateSelection(primaryColor, cardBackground, textColor, isDark)
-              : _buildStep2BookingForm(primaryColor, cardBackground, textColor, isDark),
+              : _buildStep2BookingForm(primaryColor, cardBackground, textColor, lockedFieldColor, isDark),
         ),
       ),
     );
@@ -388,7 +469,7 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     );
   }
 
-  Widget _buildStep2BookingForm(Color primaryColor, Color cardBackground, Color textColor, bool isDark) {
+  Widget _buildStep2BookingForm(Color primaryColor, Color cardBackground, Color textColor, Color lockedFieldColor, bool isDark) {
     return Form(
       key: _formKey,
       child: Column(
@@ -459,120 +540,164 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
 
           const Text('Phone Number :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
-          TextFormField(
-            controller: _phoneController,
-            keyboardType: TextInputType.phone,
-            decoration: InputDecoration(
-              hintText: 'e.g. 012-3456789',
-              filled: true,
-              fillColor: cardBackground,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            validator: (value) => (value == null || value.trim().isEmpty) ? 'Please enter phone number' : null,
-          ),
-          const SizedBox(height: 20),
-
-          Text(
-            'Pet Details :',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor),
-          ),
-          const Divider(thickness: 1.2),
-          const SizedBox(height: 8),
-          const Text('Name :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 6),
-          TextFormField(
-            controller: _petNameController,
-            decoration: InputDecoration(
-              hintText: 'e.g. Milo',
-              filled: true,
-              fillColor: cardBackground,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            validator: (value) => (value == null || value.trim().isEmpty) ? 'Please enter pet name' : null,
-          ),
-          const SizedBox(height: 14),
-
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Age :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    const SizedBox(height: 6),
-                    DropdownButtonFormField<int>(
-                      initialValue: _petAge,
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: cardBackground,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      items: List.generate(20, (i) => i + 1).map((age) {
-                        return DropdownMenuItem(value: age, child: Text('$age yr${age > 1 ? 's' : ''}'));
-                      }).toList(),
-                      onChanged: (val) {
-                        if (val != null) setState(() => _petAge = val);
-                      },
-                    ),
-                  ],
+              Container(
+                height: 48,
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: lockedFieldColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                    '🇲🇾 +60',
+                    style: TextStyle(
+                        color: isDark ? Colors.grey[400] : Colors.grey[700],
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16
+                    )
                 ),
               ),
-              const SizedBox(width: 16),
-
+              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Gender :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        ChoiceChip(
-                          label: const Text('F', style: TextStyle(fontWeight: FontWeight.bold)),
-                          selected: _petGender == 'F',
-                          selectedColor: primaryColor,
-                          checkmarkColor: _petGender == 'F' ? Theme.of(context).scaffoldBackgroundColor : Colors.white,
-                          labelStyle: TextStyle(color: _petGender == 'F' ? Theme.of(context).scaffoldBackgroundColor : primaryColor),
-                          onSelected: (_) => setState(() => _petGender = 'F'),
-                        ),
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          label: const Text('M', style: TextStyle(fontWeight: FontWeight.bold)),
-                          selected: _petGender == 'M',
-                          selectedColor: primaryColor,
-                          checkmarkColor: _petGender == 'M' ? Theme.of(context).scaffoldBackgroundColor : Colors.white,
-                          labelStyle: TextStyle(color: _petGender == 'M' ? Theme.of(context).scaffoldBackgroundColor : primaryColor),
-                          onSelected: (_) => setState(() => _petGender = 'M'),
-                        ),
-                      ],
+                child: TextFormField(
+                  controller: _phoneController,
+                  readOnly: true,
+                  style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[700]),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: lockedFieldColor,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none
                     ),
-                  ],
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 20),
 
-          const Text('Breed :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 6),
-          TextFormField(
-            controller: _breedController,
-            decoration: InputDecoration(
-              hintText: 'e.g. Domestic Shorthair / Poodle',
-              filled: true,
-              fillColor: cardBackground,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            validator: (value) => (value == null || value.trim().isEmpty) ? 'Please enter breed' : null,
+          Text(
+            'Select Pet :',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor),
           ),
+          const Divider(thickness: 1.2),
+          const SizedBox(height: 8),
+
+          if (_isLoadingPets)
+            Center(child: CircularProgressIndicator(color: primaryColor))
+          else if (_myPets.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.brown[900] : Colors.brown[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.pets, size: 40, color: Colors.grey),
+                  const SizedBox(height: 8),
+                  const Text('No pets found.'),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const PetInfoPage())).then((_) => _loadPets());
+                    },
+                    child: const Text('Add a Pet', style: TextStyle(color: Colors.white)),
+                  )
+                ],
+              ),
+            )
+          else
+            SizedBox(
+              height: 140,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _myPets.length,
+                itemBuilder: (context, index) {
+                  final pet = _myPets[index];
+                  final isSelected = _selectedPet?.name == pet.name;
+
+                  ImageProvider? petImage;
+                  if (pet.imagePath.isNotEmpty) {
+                    if (pet.isAdopted) {
+                      petImage = NetworkImage(pet.imagePath);
+                    } else {
+                      petImage = FileImage(File(pet.imagePath));
+                    }
+                  }
+
+                  return GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _selectedPet = pet;
+                      });
+                    },
+                    child: Container(
+                      width: 110,
+                      margin: const EdgeInsets.only(right: 12),
+                      decoration: BoxDecoration(
+                        color: isSelected ? primaryColor.withValues(alpha: 0.1) : cardBackground,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected ? primaryColor : Colors.grey.withValues(alpha: 0.4),
+                          width: isSelected ? 2.0 : 1.0,
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Stack(
+                            alignment: Alignment.topRight,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(4.0),
+                                child: CircleAvatar(
+                                  radius: 30,
+                                  backgroundColor: Colors.brown[100],
+                                  backgroundImage: petImage,
+                                  child: petImage == null ? Icon(Icons.pets, color: Colors.brown[400]) : null,
+                                ),
+                              ),
+                              if (isSelected)
+                                Container(
+                                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.green),
+                                  child: const Icon(Icons.check, size: 16, color: Colors.white),
+                                )
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            pet.name,
+                            style: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            pet.species,
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
           const SizedBox(height: 28),
 
           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
