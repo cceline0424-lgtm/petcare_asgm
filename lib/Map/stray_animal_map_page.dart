@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:petcare_asgm/Map/record.dart';
+import 'package:petcare_asgm/main.dart';
 
 class StrayAnimalMapPage extends StatefulWidget {
   const StrayAnimalMapPage({super.key});
@@ -65,6 +66,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
           } catch (e) {}
         }
       });
+      await prefs.setInt('last_seen_stray_count', _strayRecords.length);
     }
   }
 
@@ -348,7 +350,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                       ),
                     ),
                     InkWell(
-                      onTap: () {
+                      onTap: () async {
                         setState(() {
                           _strayRecords.add(
                               StrayAnimalRecord(
@@ -358,9 +360,12 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                               )
                           );
                         });
-                        _savePins();
-                        Navigator.pop(context);
-                        _mapController.move(locationToPin, 17.0);
+                        await _savePins();
+                        notificationSignal.value++;
+                        if (mounted) {
+                          Navigator.pop(context);
+                          _mapController.move(locationToPin, 17.0);
+                        }
                       },
                       child: Container(
                         padding: const EdgeInsets.all(16),

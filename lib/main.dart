@@ -8,8 +8,10 @@ import 'package:petcare_asgm/Map/stray_animal_map_page.dart';
 import 'package:petcare_asgm/Auth/welcome_page.dart';
 import 'package:petcare_asgm/Auth/auth_service.dart';
 import 'package:petcare_asgm/PetAdoption/pet_adoption_page.dart';
+import 'package:petcare_asgm/UserProfile/my_appointments_page.dart';
 
 final ValueNotifier<bool> isDarkModeNotifier = ValueNotifier(false);
+final ValueNotifier<int> notificationSignal = ValueNotifier(0);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,13 +33,11 @@ class PetHealthCareApp extends StatelessWidget {
         return MaterialApp(
           title: 'Pet Health Care',
           debugShowCheckedModeBanner: false,
-
           theme: ThemeData(
             brightness: Brightness.light,
             primarySwatch: Colors.brown,
             scaffoldBackgroundColor: Colors.white,
           ),
-
           darkTheme: ThemeData(
             brightness: Brightness.dark,
             primarySwatch: Colors.brown,
@@ -45,7 +45,6 @@ class PetHealthCareApp extends StatelessWidget {
             cardColor: Colors.grey[850],
           ),
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-
           home: const AuthGate(),
         );
       },
@@ -111,109 +110,169 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   bool _hasNewNotifications = false;
 
   Map<String, dynamic>? _upcomingAppointment;
+  int _strayPinCount = 0;
+  bool _hasNewStrayPins = false;
+  bool _hasNewAppt = false;
 
   @override
   void initState() {
     super.initState();
-    _checkUpcomingAppointments();
+    _checkNotifications();
+    notificationSignal.addListener(_checkNotifications);
   }
 
-  Future<void> _checkUpcomingAppointments() async {
-    final appointments = await AppointmentStorage.getAppointments();
+  @override
+  void dispose() {
+    notificationSignal.removeListener(_checkNotifications);
+    super.dispose();
+  }
 
+  Future<void> _checkNotifications() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final appointments = await AppointmentStorage.getAppointments();
     final upcomingList = appointments.where((app) => app['status'] == 'Upcoming').toList();
 
-    if (upcomingList.isNotEmpty) {
-      if (mounted) {
-        setState(() {
+    final List<String>? recordsJson = prefs.getStringList('stray_pins');
+    _strayPinCount = recordsJson?.length ?? 0;
+    int lastSeenCount = prefs.getInt('last_seen_stray_count') ?? 0;
+    _hasNewStrayPins = _strayPinCount > lastSeenCount;
+
+    bool showApptReminder = prefs.getBool('reminder') ?? true;
+    bool showStrayAlert = prefs.getBool('stray_alert') ?? true;
+
+    if (mounted) {
+      setState(() {
+        if (upcomingList.isNotEmpty) {
           _upcomingAppointment = upcomingList.last;
+        } else {
+          _upcomingAppointment = null;
+        }
+
+        String lastSeenApptId = prefs.getString('last_seen_appt_id') ?? '';
+        _hasNewAppt = _upcomingAppointment != null && _upcomingAppointment!['id'] != lastSeenApptId;
+
+        _hasNewNotifications = false;
+
+        if (_hasNewAppt && showApptReminder) {
           _hasNewNotifications = true;
-        });
-      }
+        }
+
+        if (_hasNewStrayPins && showStrayAlert) {
+          _hasNewNotifications = true;
+        }
+      });
     }
+  }
+
+  void _showNotificationTray(BuildContext context, bool isDark) async {
+    final prefs = await SharedPreferences.getInstance();
+    bool showApptReminder = prefs.getBool('reminder') ?? true;
+    bool showStrayAlert = prefs.getBool('stray_alert') ?? true;
+
+    if (!context.mounted) return;
+
+    showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: isDark ? Colors.grey[900] : Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) {
+          Color textColor = isDark ? Colors.white : Colors.brown[800]!;
+          Color subtitleColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Notifications',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Close', style: TextStyle(color: Colors.red)),
+                        )
+                      ],
+                    ),
+                    const Divider(),
+
+                    if (_upcomingAppointment != null && showApptReminder)
+                      ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.brown[100],
+                          child: Icon(Icons.calendar_month, color: Colors.brown[800]),
+                        ),
+                        title: Text(
+                            _hasNewAppt ? 'New Appointment Reminder!' : 'Upcoming Appointment',
+                            style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
+                        ),
+                        subtitle: Text(
+                            'Your vet visit at ${_upcomingAppointment!['clinicName']} is coming up on ${_upcomingAppointment!['date']} at ${_upcomingAppointment!['time']}.',
+                            style: TextStyle(color: subtitleColor)
+                        ),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const MyAppointmentsPage()),
+                          ).then((_) => _checkNotifications());
+                        },
+                      ),
+
+                    if (showStrayAlert && _strayPinCount > 0)
+                      ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.red[100],
+                          child: const Icon(Icons.location_pin, color: Colors.red),
+                        ),
+                        title: Text(
+                            _hasNewStrayPins ? 'New Stray Map Alert!' : 'Stray Map Summary',
+                            style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
+                        ),
+                        subtitle: Text(
+                            '$_strayPinCount stray animal(s) reported nearby. Tap to view the locations.',
+                            style: TextStyle(color: subtitleColor)
+                        ),
+                        onTap: () {
+                          setState(() {
+                            _hasNewStrayPins = false;
+                            _currentIndex = 3;
+                          });
+                          Navigator.pop(context);
+                        },
+                      ),
+
+                    ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.green[100],
+                        child: const Icon(Icons.local_offer, color: Colors.green),
+                      ),
+                      title: Text('Welcome to U Pet!', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                      subtitle: Text('Complete your profile to get full access to all features.', style: TextStyle(color: subtitleColor)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     bool isHomeSelected = _currentIndex == 2;
     bool isDark = Theme.of(context).brightness == Brightness.dark;
-
-    void _showNotificationTray(BuildContext context, bool isDark) {
-      showModalBottomSheet(
-          context: context,
-          isScrollControlled: true, // Fix 1: allows sheet to be taller than 50%
-          backgroundColor: isDark ? Colors.grey[900] : Colors.white,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          builder: (context) {
-            Color textColor = isDark ? Colors.white : Colors.brown[800]!;
-            Color subtitleColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
-
-            return SafeArea( // Fix 2: keeps it off the Android nav bar
-              child: SingleChildScrollView( // Fix 3: allows scrolling so it never overflows
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Notifications',
-                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('Close', style: TextStyle(color: Colors.red)),
-                          )
-                        ],
-                      ),
-                      const Divider(),
-
-                      if (_upcomingAppointment != null)
-                        ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: Colors.brown[100],
-                            child: Icon(Icons.calendar_month, color: Colors.brown[800]),
-                          ),
-                          title: Text(
-                              'Appointment Reminder',
-                              style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
-                          ),
-                          subtitle: Text(
-                              'Your vet visit at ${_upcomingAppointment!['clinicName']} is coming up on ${_upcomingAppointment!['date']} at ${_upcomingAppointment!['time']}.',
-                              style: TextStyle(color: subtitleColor)
-                          ),
-                        ),
-
-                      ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.red[100],
-                          child: const Icon(Icons.location_pin, color: Colors.red),
-                        ),
-                        title: Text('Stray Map Alert', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                        subtitle: Text('A new stray animal was reported nearby. Tap to view the location.', style: TextStyle(color: subtitleColor)),
-                      ),
-
-                      ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.green[100],
-                          child: const Icon(Icons.local_offer, color: Colors.green),
-                        ),
-                        title: Text('Welcome to U Pet!', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                        subtitle: Text('Complete your profile to get full access to all features.', style: TextStyle(color: subtitleColor)),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }
-      );
-    }
 
     final List<Widget> pages = [
       const PetAdoptionPage(),
@@ -235,7 +294,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 3,
         shadowColor: Colors.brown.withValues(alpha: 0.3),
-
         leading: Padding(
           padding: const EdgeInsets.all(8.0),
           child: Container(
@@ -251,7 +309,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ),
         ),
         titleSpacing: 0,
-
         title: Text(
           'Pet Health Care',
           style: TextStyle(
@@ -261,7 +318,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             letterSpacing: 0.5,
           ),
         ),
-
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12.0),
@@ -274,15 +330,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     color: isDark ? Colors.white : Colors.brown[800],
                     size: 28,
                   ),
-                  onPressed: () {
+                  onPressed: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    if (_upcomingAppointment != null) {
+                      await prefs.setString('last_seen_appt_id', _upcomingAppointment!['id']);
+                    }
+                    await prefs.setInt('last_seen_stray_count', _strayPinCount);
+
                     setState(() {
                       _hasNewNotifications = false;
                     });
 
+                    if (!context.mounted) return;
                     _showNotificationTray(context, isDark);
                   },
                 ),
-
                 if (_hasNewNotifications)
                   Positioned(
                     right: 12,
@@ -301,9 +363,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ),
         ],
       ),
-
       body: pages[_currentIndex],
-
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.brown[700],
         elevation: isHomeSelected ? 6 : 0,
@@ -319,9 +379,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           color: isHomeSelected ? Colors.white : Colors.white54,
         ),
       ),
-
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-
       bottomNavigationBar: BottomAppBar(
         color: Colors.brown[700],
         shape: const CircularNotchedRectangle(),
@@ -347,16 +405,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 ),
                 onPressed: () => setState(() => _currentIndex = 1),
               ),
-
               const SizedBox(width: 48.0),
-
               IconButton(
                 icon: Icon(
                   Icons.map,
                   size: _currentIndex == 3 ? 32 : 28,
                   color: _currentIndex == 3 ? Colors.white : Colors.white60,
                 ),
-                onPressed: () => setState(() => _currentIndex = 3),
+                onPressed: () {
+                  setState(() => _currentIndex = 3);
+                  _checkNotifications();
+                },
               ),
               IconButton(
                 icon: Icon(

@@ -6,6 +6,7 @@ import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
 import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
 import 'package:petcare_asgm/Auth/auth_service.dart';
 import 'package:petcare_asgm/Auth/database_helper.dart';
+import 'package:petcare_asgm/main.dart';
 
 class AppointmentBookingPage extends StatefulWidget {
   final Map<String, dynamic> clinicData;
@@ -18,7 +19,6 @@ class AppointmentBookingPage extends StatefulWidget {
 
 class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
   int _currentStep = 0;
-
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
   String _selectedTimeSlot = '10:00 AM';
 
@@ -154,7 +154,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
               surface: Colors.white,
             ),
             dialogBackgroundColor: isDark ? Colors.grey[900] : Colors.white,
-
             datePickerTheme: DatePickerThemeData(
               cancelButtonStyle: TextButton.styleFrom(
                 foregroundColor: Colors.red,
@@ -198,6 +197,8 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
     };
 
     await AppointmentStorage.saveAppointment(newAppointment);
+
+    notificationSignal.value++;
 
     if (!mounted) return;
     showDialog(
@@ -315,13 +316,11 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
         ),
         const SizedBox(height: 20),
-
         Text(
           'Select Appointment Date',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor),
         ),
         const SizedBox(height: 10),
-
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -346,7 +345,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
               ),
               const Divider(thickness: 1),
               const SizedBox(height: 8),
-
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -402,13 +400,11 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           ),
         ),
         const SizedBox(height: 20),
-
         Text(
           'Select Time Slot',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: primaryColor),
         ),
         const SizedBox(height: 10),
-
         Wrap(
           spacing: 10,
           runSpacing: 10,
@@ -441,7 +437,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
           }).toList(),
         ),
         const SizedBox(height: 32),
-
         SizedBox(
           width: double.infinity,
           height: 52,
@@ -477,7 +472,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
         children: [
           const Text('Date :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
-
           InkWell(
             onTap: () {
               _pickCustomDate(primaryColor);
@@ -503,7 +497,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
             ),
           ),
           const SizedBox(height: 14),
-
           const Text('Service(s) :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
           DropdownButtonFormField<String>(
@@ -522,7 +515,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
             },
           ),
           const SizedBox(height: 14),
-
           const Text('Owner Name :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
           TextFormField(
@@ -537,7 +529,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
             validator: (value) => (value == null || value.trim().isEmpty) ? 'Please enter owner name' : null,
           ),
           const SizedBox(height: 14),
-
           const Text('Phone Number :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 6),
           Row(
@@ -580,14 +571,12 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
             ],
           ),
           const SizedBox(height: 20),
-
           Text(
             'Select Pet :',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: primaryColor),
           ),
           const Divider(thickness: 1.2),
           const SizedBox(height: 8),
-
           if (_isLoadingPets)
             Center(child: CircularProgressIndicator(color: primaryColor))
           else if (_myPets.isEmpty)
@@ -693,9 +682,7 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
                 },
               ),
             ),
-
           const SizedBox(height: 28),
-
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
