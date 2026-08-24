@@ -3,7 +3,7 @@ import 'package:mailer/smtp_server.dart';
 
 class EmailService {
   static const String _senderEmail = 'ckrn0411@gmail.com';
-  static const String _senderAppPassword = 'xrjj bkgt onws itlh';
+  static const String _senderAppPassword = 'ntjf infk ufvi yobc';
   static const String _senderName = 'Pet Health Care App';
 
   static Future<bool> sendOtpEmail({
