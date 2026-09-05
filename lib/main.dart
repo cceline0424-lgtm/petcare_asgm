@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+import 'dart:convert';
 import 'package:petcare_asgm/Home/home_page.dart';
 import 'package:petcare_asgm/UserProfile/user_profile_page.dart';
 import 'package:petcare_asgm/VetClinic/vet_clinic_page.dart';
 import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
+import 'package:petcare_asgm/VetClinic/appointment_time_utils.dart';
 import 'package:petcare_asgm/Map/stray_animal_map_page.dart';
+import 'package:petcare_asgm/Map/record.dart';
 import 'package:petcare_asgm/Auth/welcome_page.dart';
 import 'package:petcare_asgm/Auth/auth_service.dart';
 import 'package:petcare_asgm/PetAdoption/pet_adoption_page.dart';
@@ -131,10 +136,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final prefs = await SharedPreferences.getInstance();
 
     final appointments = await AppointmentStorage.getAppointments();
-    final upcomingList = appointments.where((app) => app['status'] == 'Upcoming').toList();
+    final upcomingList = appointments
+        .where((app) => app['status'] == 'Upcoming' && !isAppointmentPast(app))
+        .toList();
 
-    final List<String>? recordsJson = prefs.getStringList('stray_pins');
-    _strayPinCount = recordsJson?.length ?? 0;
+    _strayPinCount = await _countNearbyStrayPins(prefs);
     int lastSeenCount = prefs.getInt('last_seen_stray_count') ?? 0;
     _hasNewStrayPins = _strayPinCount > lastSeenCount;
 
@@ -163,6 +169,52 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         }
       });
     }
+  }
+
+  /// Counts stray reports within 1km of the user's current location. If a
+  /// location fix can't be obtained (permission denied, GPS off, etc.),
+  /// falls back to counting every report so the alert doesn't just vanish.
+  Future<int> _countNearbyStrayPins(SharedPreferences prefs) async {
+    final List<String>? recordsJson = prefs.getStringList('stray_pins');
+    if (recordsJson == null || recordsJson.isEmpty) return 0;
+
+    Position? position;
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (serviceEnabled) {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission != LocationPermission.denied && permission != LocationPermission.deniedForever) {
+          position = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      position = null;
+    }
+
+    if (position == null) return recordsJson.length;
+
+    const Distance distanceCalc = Distance();
+    final userLocation = LatLng(position.latitude, position.longitude);
+    int nearbyCount = 0;
+
+    for (final jsonStr in recordsJson) {
+      try {
+        final record = StrayAnimalRecord.fromJson(jsonDecode(jsonStr));
+        if (distanceCalc(userLocation, record.location) <= 1000) {
+          nearbyCount++;
+        }
+      } catch (_) {}
+    }
+
+    return nearbyCount;
   }
 
   void _showNotificationTray(BuildContext context, bool isDark) async {
@@ -240,7 +292,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                             style: TextStyle(color: textColor, fontWeight: FontWeight.bold)
                         ),
                         subtitle: Text(
-                            '$_strayPinCount stray animal(s) reported nearby. Tap to view the locations.',
+                            '$_strayPinCount stray animal(s) reported within 1km of you. Tap to view the locations.',
                             style: TextStyle(color: subtitleColor)
                         ),
                         onTap: () {

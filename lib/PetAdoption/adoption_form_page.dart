@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:petcare_asgm/Auth/auth_service.dart';
 import 'package:petcare_asgm/Auth/database_helper.dart';
 import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
+import 'package:petcare_asgm/VetClinic/vet_clinic_service.dart';
 
 class AdoptionFormPage extends StatefulWidget {
   final Map<String, dynamic> petData;
@@ -21,7 +23,10 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
   final TextEditingController _adopterNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _addressLine1Controller = TextEditingController();
+  final TextEditingController _addressLine2Controller = TextEditingController();
+  final TextEditingController _postcodeController = TextEditingController();
+  final TextEditingController _cityController = TextEditingController();
   final TextEditingController _reasonController = TextEditingController();
 
   final TextEditingController _icPart1 = TextEditingController();
@@ -32,38 +37,107 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
   final FocusNode _icNode2 = FocusNode();
   final FocusNode _icNode3 = FocusNode();
 
+  // Malaysia's 13 states + 3 federal territories, minus the "All States"
+  // filter option that only makes sense on the clinic list/map.
+  static final List<String> _states =
+  VetClinicService.malaysiaStates.where((s) => s != 'All States').toList();
+
+  String? _selectedState;
+  String? _loggedInUsername;
+  Timer? _autoSaveDebounce;
+
   @override
   void initState() {
     super.initState();
     _loadUserProfileData();
+
+    // Every field that should be remembered gets auto-saved (debounced) as
+    // the user types, so they never have to re-type their name/address on
+    // a future adoption application.
+    _adopterNameController.addListener(_scheduleAutoSave);
+    _addressLine1Controller.addListener(_scheduleAutoSave);
+    _addressLine2Controller.addListener(_scheduleAutoSave);
+    _postcodeController.addListener(_scheduleAutoSave);
+    _cityController.addListener(_scheduleAutoSave);
   }
+
+  String _savedProfileKey(String username) => 'adoption_saved_profile_$username';
 
   Future<void> _loadUserProfileData() async {
     final username = await AuthService.getLoggedInUsername();
+    _loggedInUsername = username;
+    if (username == null) return;
 
-    if (username != null) {
-      final user = await DatabaseHelper.instance.getUserByUsername(username);
+    final user = await DatabaseHelper.instance.getUserByUsername(username);
+    final prefs = await SharedPreferences.getInstance();
+    final savedJson = prefs.getString(_savedProfileKey(username));
 
-      if (user != null && mounted) {
-        setState(() {
-          _emailController.text = user['email'] ?? '';
+    if (!mounted) return;
 
-          String rawContact = user['phone'] ?? '';
-          if (rawContact.startsWith('+60')) {
-            rawContact = rawContact.substring(3);
-          }
-          _phoneController.text = rawContact;
-        });
+    setState(() {
+      if (user != null) {
+        _emailController.text = user['email'] ?? '';
+
+        String rawContact = user['phone'] ?? '';
+        if (rawContact.startsWith('+60')) {
+          rawContact = rawContact.substring(3);
+        }
+        _phoneController.text = rawContact;
       }
-    }
+
+      if (savedJson != null) {
+        try {
+          final saved = jsonDecode(savedJson) as Map<String, dynamic>;
+          _adopterNameController.text = saved['name'] ?? '';
+          _addressLine1Controller.text = saved['addressLine1'] ?? '';
+          _addressLine2Controller.text = saved['addressLine2'] ?? '';
+          _postcodeController.text = saved['postcode'] ?? '';
+          _cityController.text = saved['city'] ?? '';
+          final savedState = saved['state'] as String?;
+          if (savedState != null && _states.contains(savedState)) {
+            _selectedState = savedState;
+          }
+        } catch (_) {
+          // Saved data is corrupted/outdated - just start with blank fields
+          // instead of crashing the form.
+        }
+      }
+    });
+  }
+
+  /// Debounces auto-save so a fast typist doesn't trigger a disk write on
+  /// every single keystroke - it saves ~600ms after the user stops typing.
+  void _scheduleAutoSave() {
+    _autoSaveDebounce?.cancel();
+    _autoSaveDebounce = Timer(const Duration(milliseconds: 600), _persistProfile);
+  }
+
+  Future<void> _persistProfile() async {
+    final username = _loggedInUsername;
+    if (username == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final data = {
+      'name': _adopterNameController.text.trim(),
+      'addressLine1': _addressLine1Controller.text.trim(),
+      'addressLine2': _addressLine2Controller.text.trim(),
+      'state': _selectedState,
+      'postcode': _postcodeController.text.trim(),
+      'city': _cityController.text.trim(),
+    };
+    await prefs.setString(_savedProfileKey(username), jsonEncode(data));
   }
 
   @override
   void dispose() {
+    _autoSaveDebounce?.cancel();
     _adopterNameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _addressController.dispose();
+    _addressLine1Controller.dispose();
+    _addressLine2Controller.dispose();
+    _postcodeController.dispose();
+    _cityController.dispose();
     _reasonController.dispose();
     _icPart1.dispose();
     _icPart2.dispose();
@@ -330,16 +404,89 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
                 const Text('Home Address :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 const SizedBox(height: 6),
                 TextFormField(
-                  controller: _addressController,
-                  maxLines: 2,
+                  controller: _addressLine1Controller,
                   decoration: InputDecoration(
-                    hintText: 'Where will the pet be staying?',
+                    hintText: 'House no., street name',
                     filled: true,
                     fillColor: cardBackground,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                     contentPadding: const EdgeInsets.all(14),
                   ),
                   validator: (v) => v == null || v.trim().isEmpty ? 'Please enter your address' : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _addressLine2Controller,
+                  decoration: InputDecoration(
+                    hintText: 'Taman / apartment / unit no. (optional)',
+                    filled: true,
+                    fillColor: cardBackground,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    contentPadding: const EdgeInsets.all(14),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 6,
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedState,
+                        isExpanded: true,
+                        icon: Icon(Icons.keyboard_arrow_down, color: primaryColor),
+                        style: TextStyle(color: textColor, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'State',
+                          filled: true,
+                          fillColor: cardBackground,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                        items: _states
+                            .map((state) => DropdownMenuItem(value: state, child: Text(state)))
+                            .toList(),
+                        onChanged: (val) {
+                          setState(() => _selectedState = val);
+                          _scheduleAutoSave();
+                        },
+                        validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 5,
+                      child: TextFormField(
+                        controller: _postcodeController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(5),
+                        ],
+                        decoration: InputDecoration(
+                          hintText: 'Postcode',
+                          filled: true,
+                          fillColor: cardBackground,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                        validator: (v) =>
+                        v == null || v.trim().length != 5 ? '5 digits' : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _cityController,
+                  decoration: InputDecoration(
+                    hintText: 'City',
+                    filled: true,
+                    fillColor: cardBackground,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    contentPadding: const EdgeInsets.all(14),
+                  ),
+                  validator: (v) => v == null || v.trim().isEmpty ? 'Please enter your city' : null,
                 ),
                 const SizedBox(height: 16),
 

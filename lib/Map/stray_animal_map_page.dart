@@ -9,6 +9,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:petcare_asgm/Map/record.dart';
 import 'package:petcare_asgm/main.dart';
+import 'package:petcare_asgm/VetClinic/vet_clinic_service.dart';
+import 'package:petcare_asgm/VetClinic/clinic_details_page.dart';
 
 class StrayAnimalMapPage extends StatefulWidget {
   const StrayAnimalMapPage({super.key});
@@ -30,17 +32,85 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
 
   final List<StrayAnimalRecord> _strayRecords = [];
 
+  // Vet clinic pins: loaded once (offline) from the clinic directory, then
+  // resolved to map coordinates on demand. These pins are read-only on the
+  // map - tapping one opens the clinic's detail page, nothing here edits it.
+  List<VetClinicPin> _allClinics = [];
+  final List<VetClinicPin> _visibleClinicPins = [];
+  bool _showVetClinics = false;
+  bool _isLoadingClinics = false;
+  bool _stopClinicLoad = false;
+
   @override
   void initState() {
     super.initState();
     _loadPins();
     _getRealUserLocation();
+    _loadClinicDirectory();
   }
 
   @override
   void dispose() {
+    _stopClinicLoad = true;
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadClinicDirectory() async {
+    try {
+      final clinics = await VetClinicService.loadClinics();
+      if (mounted) {
+        setState(() {
+          _allClinics = clinics;
+        });
+      }
+    } catch (_) {
+      // If the directory can't be read, vet clinic pins simply won't be
+      // available - the rest of the map still works normally.
+    }
+  }
+
+  Future<void> _loadAllClinicPins() async {
+    if (_isLoadingClinics) return;
+
+    setState(() {
+      _isLoadingClinics = true;
+      _visibleClinicPins.clear();
+    });
+
+    _stopClinicLoad = false;
+    await VetClinicService.resolveLocations(
+      _allClinics,
+      shouldStop: () => _stopClinicLoad,
+      onEachResolved: (pin) {
+        if (!mounted) return;
+        setState(() {
+          if (!_visibleClinicPins.any((p) => p.id == pin.id)) {
+            _visibleClinicPins.add(pin);
+          }
+        });
+      },
+    );
+
+    if (mounted) {
+      setState(() => _isLoadingClinics = false);
+    }
+  }
+
+  void _toggleVetClinics() {
+    setState(() => _showVetClinics = !_showVetClinics);
+    if (_showVetClinics && _visibleClinicPins.isEmpty && !_isLoadingClinics) {
+      _loadAllClinicPins();
+    }
+  }
+
+  void _openClinicDetails(VetClinicPin pin) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ClinicDetailsPage(clinicData: pin.toClinicData()),
+      ),
+    );
   }
 
   Future<void> _savePins() async {
@@ -238,7 +308,14 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
   }
 
   Future<void> _searchLocation(String query) async {
-    if (query.trim().isEmpty) return;
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+
+    final clinicMatch = _findMatchingClinic(trimmed);
+    if (clinicMatch != null) {
+      await _focusOnClinic(clinicMatch);
+      return;
+    }
 
     try {
       final response = await http.get(
@@ -274,6 +351,52 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
         const SnackBar(content: Text('Error searching location.')),
       );
     }
+  }
+
+  VetClinicPin? _findMatchingClinic(String query) {
+    final lowerQuery = query.toLowerCase();
+    for (final clinic in _allClinics) {
+      if (clinic.name.toLowerCase().contains(lowerQuery)) {
+        return clinic;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _focusOnClinic(VetClinicPin clinic) async {
+    FocusScope.of(context).unfocus();
+
+    if (clinic.location == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Locating clinic...')),
+        );
+      }
+      await VetClinicService.resolveLocations([clinic]);
+    }
+
+    if (!mounted) return;
+
+    if (clinic.location == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not find that clinic on the map.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _showVetClinics = true;
+      if (!_visibleClinicPins.any((p) => p.id == clinic.id)) {
+        _visibleClinicPins.add(clinic);
+      }
+    });
+
+    _mapController.move(clinic.location!, 17.0);
+    // Just reveal the pin on the map - the user taps it themselves to open
+    // the clinic's details, same as any other vet clinic marker.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Tap the pin to see clinic details.')),
+    );
   }
 
   Future<void> _openCamera() async {
@@ -604,6 +727,46 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
     );
   }
 
+  // Vet clinic markers are deliberately shaped/colored differently from the
+  // stray-animal photo pins (a teal map-pin with a clinic icon, vs. a
+  // circular photo avatar) so the two pin types read as distinct at a
+  // glance. Tapping one only opens the read-only clinic details page.
+  Marker _buildVetClinicMarker(VetClinicPin pin) {
+    return Marker(
+      point: pin.location!,
+      width: 48,
+      height: 48,
+      child: GestureDetector(
+        onTap: () => _openClinicDetails(pin),
+        child: Stack(
+          alignment: Alignment.topCenter,
+          children: [
+            Icon(
+              Icons.location_on,
+              size: 48,
+              color: Colors.teal[700],
+              shadows: const [
+                Shadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 2)),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.local_hospital, size: 13, color: Colors.teal[700]),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -677,6 +840,10 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                 ),
               MarkerLayer(
                 markers: [
+                  if (_showVetClinics)
+                    ..._visibleClinicPins
+                        .where((pin) => pin.location != null)
+                        .map(_buildVetClinicMarker),
                   ..._strayRecords.map((record) {
                     return Marker(
                       point: record.location,
@@ -809,6 +976,53 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
               child: const Icon(Icons.my_location, color: Colors.blue),
             ),
           ),
+          Positioned(
+            left: 16,
+            bottom: 90,
+            child: FloatingActionButton(
+              heroTag: 'vet_clinic_btn',
+              mini: true,
+              backgroundColor: _showVetClinics ? Colors.teal[700] : Colors.white,
+              onPressed: _toggleVetClinics,
+              tooltip: 'Show vet clinics',
+              child: Icon(
+                Icons.local_hospital,
+                color: _showVetClinics ? Colors.white : Colors.teal[700],
+              ),
+            ),
+          ),
+          if (_showVetClinics && _isLoadingClinics)
+            Positioned(
+              top: 66,
+              left: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.teal),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Pinning clinics... ${_visibleClinicPins.length}/${_allClinics.length}',
+                      style: TextStyle(
+                        color: Colors.teal[700],
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton(

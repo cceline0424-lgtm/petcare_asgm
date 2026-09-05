@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "795034856880",
+    "project_id": "pet-health-care-77dd1",
+    "storage_bucket": "pet-health-care-77dd1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:795034856880:android:fa2c902696f972e4fcfa75",
+        "android_client_info": {
+          "package_name": "tarc.edu.petcare_asgm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC5N176yRxgdI7_MG5-ZB8kC8QfQW-z0F4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

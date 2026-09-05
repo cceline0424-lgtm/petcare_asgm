@@ -4,13 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
-
-import 'package:petcare_asgm/VetClinic/vet_clinic_page.dart';
-import 'package:petcare_asgm/Map/stray_animal_map_page.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:petcare_asgm/UserProfile/my_appointments_page.dart';
 import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
-
 import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
+import 'package:petcare_asgm/VetClinic/appointment_time_utils.dart';
 import 'package:petcare_asgm/Map/record.dart';
 
 class HomePage extends StatefulWidget {
@@ -99,7 +97,9 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadUpcomingAppointment() async {
     final allAppointments = await AppointmentStorage.getAppointments();
-    final upcomingList = allAppointments.where((app) => app['status'] == 'Upcoming').toList();
+    final upcomingList = allAppointments
+        .where((app) => app['status'] == 'Upcoming' && !isAppointmentPast(app))
+        .toList();
 
     if (upcomingList.isNotEmpty) {
       _upcomingAppointment = upcomingList.first;
@@ -108,19 +108,58 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// Best-effort location lookup shared by the "nearby strays" and weather
+  /// tip features. Returns null (rather than throwing) if location services
+  /// or permissions aren't available, so callers can fall back gracefully.
+  Future<Position?> _getCurrentPositionSafe() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return null;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        return null;
+      }
+
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 5),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _loadRecentStrays() async {
     final prefs = await SharedPreferences.getInstance();
     final List<String>? recordsJson = prefs.getStringList('stray_pins');
 
     if (recordsJson != null) {
+      final position = await _getCurrentPositionSafe();
+      const Distance distanceCalc = Distance();
+
       List<StrayAnimalRecord> loadedStrays = [];
       for (String jsonStr in recordsJson) {
         try {
           final Map<String, dynamic> data = jsonDecode(jsonStr);
           final record = StrayAnimalRecord.fromJson(data);
-          if (record.imageFile.existsSync()) {
-            loadedStrays.add(record);
+          if (!record.imageFile.existsSync()) continue;
+
+          // Only surface strays within 1km of where the user actually is
+          // right now. If we couldn't get a location fix, fall back to
+          // showing the most recent reports rather than hiding everything.
+          if (position != null) {
+            final userLocation = LatLng(position.latitude, position.longitude);
+            final distanceInMeters = distanceCalc(userLocation, record.location);
+            if (distanceInMeters > 1000) continue;
           }
+
+          loadedStrays.add(record);
         } catch (e) {}
       }
 
@@ -482,7 +521,7 @@ class _HomePageState extends State<HomePage> {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
         ),
-        child: const Text('No recent stray animals reported nearby.', style: TextStyle(color: Colors.grey)),
+        child: const Text('No stray animals reported within 1km of you right now.', style: TextStyle(color: Colors.grey)),
       );
     }
 
