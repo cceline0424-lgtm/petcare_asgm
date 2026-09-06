@@ -35,8 +35,6 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
   final FocusNode _icNode2 = FocusNode();
   final FocusNode _icNode3 = FocusNode();
 
-  // Malaysia's 13 states + 3 federal territories, minus the "All States"
-  // filter option that only makes sense on the clinic list/map.
   static final List<String> _states =
   VetClinicService.malaysiaStates.where((s) => s != 'All States').toList();
 
@@ -49,9 +47,6 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
     super.initState();
     _loadUserProfileData();
 
-    // Every field that should be remembered gets auto-saved (debounced) as
-    // the user types, so they never have to re-type their name/address on
-    // a future adoption application.
     _adopterNameController.addListener(_scheduleAutoSave);
     _addressLine1Controller.addListener(_scheduleAutoSave);
     _addressLine2Controller.addListener(_scheduleAutoSave);
@@ -94,8 +89,6 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
     });
   }
 
-  /// Debounces auto-save so a fast typist doesn't trigger a write on every
-  /// single keystroke - it saves ~600ms after the user stops typing.
   void _scheduleAutoSave() {
     _autoSaveDebounce?.cancel();
     _autoSaveDebounce = Timer(const Duration(milliseconds: 600), _persistProfile);

@@ -35,8 +35,6 @@ class _LoginPageState extends State<LoginPage> {
     final input = _identifierController.text.trim();
     final password = _passwordController.text;
 
-    // Firebase Auth only signs in by email, so if the user typed a username
-    // instead, look up the email that goes with it first.
     String? email = input;
     if (!input.contains('@')) {
       final profile = await DatabaseHelper.instance.getUserByUsername(input);

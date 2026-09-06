@@ -48,10 +48,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
     super.dispose();
   }
 
-  /// Resolves the profile photo to show: the just-picked local file takes
-  /// priority, otherwise the saved photo path - which is a local on-device
-  /// path for photos saved under the new scheme, or (for accounts that
-  /// still have one) a legacy Firebase Storage network URL.
   ImageProvider? get _profilePhoto {
     if (_image != null) return FileImage(_image!);
     if (_photoUrl == null) return null;
@@ -67,11 +63,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
     setState(() {
       if (dbUser != null) {
         _nameCtrl.text = dbUser['name'] ?? currentUser;
-
-        // Firebase Auth's own email is the one that actually changes once a
-        // pending "confirm your new email" link is clicked, so it's the
-        // authoritative source here rather than the Firestore copy (which
-        // only updates after that confirmation happens).
         _emailCtrl.text = authUser?.email ?? dbUser['email'] ?? "";
 
         String rawContact = dbUser['phone'] ?? "";
@@ -105,10 +96,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
       await DatabaseHelper.instance.updateUserProfile(
         currentUser,
         _nameCtrl.text.trim(),
-        // Don't write the new email into Firestore yet - it isn't real
-        // until the user confirms it via the link Firebase sends below, so
-        // writing it immediately would break username-based login lookups
-        // in the meantime.
         emailChanged ? _originalEmail : newEmail,
         dbPhone,
       );
@@ -116,17 +103,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
       await authUser?.updateDisplayName(_nameCtrl.text.trim());
 
       if (emailChanged && authUser != null) {
-        // Firebase requires its own re-verification step to change the
-        // actual login email, even though the OTP step already proved
-        // ownership of the new address - this sends that confirmation link.
         await authUser.verifyBeforeUpdateEmail(newEmail);
       }
 
       if (_image != null && authUser != null) {
-        // Saved to this device's own documents folder rather than Firebase
-        // Storage - only Firestore's small 'photoUrl' string is synced to
-        // the cloud, so no billing plan is needed. The profile photo only
-        // ever needs to be visible on the owner's own device anyway.
         final docsDir = await getApplicationDocumentsDirectory();
         final profilePhotosDir = Directory('${docsDir.path}/profile_photos');
         if (!await profilePhotosDir.exists()) {

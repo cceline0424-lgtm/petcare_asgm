@@ -1,18 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// User profile storage, backed by Cloud Firestore.
-///
-/// Firebase Auth (not this class) now owns the actual login credentials
-/// (email + password) and enforces email uniqueness on its own. This class
-/// only stores the extra profile fields the app needs - name, username,
-/// phone - in a 'users' collection keyed by the Firebase Auth UID, and
-/// provides the username/phone uniqueness checks Firebase Auth doesn't do
-/// for you.
-///
-/// Method names/signatures are kept the same as the old sqflite version
-/// wherever possible so other screens (e.g. the profile page) that already
-/// call DatabaseHelper.instance.getUserByUsername(...) /
-/// .updateUserProfile(...) keep working unmodified.
 class DatabaseHelper {
   DatabaseHelper._privateConstructor();
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
@@ -20,8 +7,6 @@ class DatabaseHelper {
   CollectionReference<Map<String, dynamic>> get _users =>
       FirebaseFirestore.instance.collection('users');
 
-  /// Creates the Firestore profile doc for a user right after their Firebase
-  /// Auth account is created. [uid] must be the Firebase Auth user's uid.
   Future<void> createUserProfile({
     required String uid,
     required String name,
@@ -37,11 +22,6 @@ class DatabaseHelper {
     });
   }
 
-  /// Updates a user's profile fields, looked up by username (kept for
-  /// compatibility with existing call sites that only have the username on
-  /// hand, not the Firebase uid). Throws if the new email or phone already
-  /// belongs to a *different* account, matching the old sqflite version's
-  /// UNIQUE constraint behavior.
   Future<int> updateUserProfile(String username, String name, String email, String phone) async {
     final existing = await getUserByUsername(username);
     if (existing == null) return 0;

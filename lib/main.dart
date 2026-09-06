@@ -129,9 +129,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   bool _hasNewStrayPins = false;
   bool _showStrayAlert = true;
 
-  // The set of stray-pin ids the user has already been alerted about (read
-  // from/written to disk so it survives app restarts) and the ids currently
-  // within 1km, used to work out which of those are still "new".
   Set<String> _seenStrayPinIds = {};
   List<String> _nearbyStrayPinIds = [];
   Position? _cachedPosition;
@@ -178,9 +175,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         (_hasNewAppt && _showApptReminder) || (_hasNewStrayPins && _showStrayAlert);
   }
 
-  /// Sets up a live listener on the 'stray_pins' collection so the red dot
-  /// reacts the moment any user (not just this device) reports a stray
-  /// within 1km - no need to switch tabs or relaunch the app first.
   Future<void> _initStrayPinWatcher() async {
     final prefs = await SharedPreferences.getInstance();
     _seenStrayPinIds = (prefs.getStringList('seen_stray_pin_ids') ?? []).toSet();
@@ -214,13 +208,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
   }
 
-  /// Recomputes which stray pins are within 1km of the user every time the
-  /// 'stray_pins' collection changes. A pin only lights up the red dot
-  /// until the user actually opens the notification tray, at which point
-  /// its id is added to [_seenStrayPinIds] (and persisted) so it won't
-  /// re-trigger the dot again on its own - only a genuinely new pin will.
-  /// If a location fix isn't available, every pin counts as nearby so the
-  /// alert never silently disappears.
   void _handleStrayPinsSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
     final nearbyIds = <String>[];
 
@@ -250,8 +237,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     });
   }
 
-  /// Marks every currently-nearby stray pin as seen, so the red dot won't
-  /// light back up for them - only a pin reported after this point will.
   Future<void> _markStrayPinsSeen() async {
     final prefs = await SharedPreferences.getInstance();
     _seenStrayPinIds.addAll(_nearbyStrayPinIds);

@@ -36,9 +36,6 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _strayPinsSub;
   bool _isCreatingPin = false;
 
-  // Vet clinic pins: loaded once (offline) from the clinic directory, then
-  // resolved to map coordinates on demand. These pins are read-only on the
-  // map - tapping one opens the clinic's detail page, nothing here edits it.
   List<VetClinicPin> _allClinics = [];
   final List<VetClinicPin> _visibleClinicPins = [];
   bool _showVetClinics = false;
@@ -70,8 +67,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
         });
       }
     } catch (_) {
-      // If the directory can't be read, vet clinic pins simply won't be
-      // available - the rest of the map still works normally.
+
     }
   }
 
@@ -118,10 +114,6 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
     );
   }
 
-  /// Stray reports are shared community data, not private per-user data -
-  /// everyone using the app should see the same pins, live, without needing
-  /// to refresh. This listens to the whole 'stray_pins' collection and keeps
-  /// _strayRecords in sync automatically.
   void _listenToPins() {
     _strayPinsSub = FirebaseFirestore.instance.collection('stray_pins').snapshots().listen((snap) async {
       if (!mounted) return;
@@ -140,18 +132,9 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
           ..clear()
           ..addAll(records);
       });
-      // Notification-badge "seen" tracking for stray pins now lives in
-      // main.dart (MainNavigationScreen), keyed by pin id rather than a
-      // raw count, so there's nothing to update here any more.
     });
   }
 
-  /// Encodes a stray photo as a Base64 `data:image/jpeg;base64,...` string so
-  /// it can be stored directly inside the Firestore document and stay
-  /// visible to every user viewing the map - no Firebase Storage (and no
-  /// billing plan) required. The image is already compressed by the picker
-  /// (see `_openCamera`/the retake picker below) so this comfortably fits
-  /// inside Firestore's 1MB document limit.
   Future<String> _encodePinPhoto(File file, String pinId) async {
     final bytes = await file.readAsBytes();
     return 'data:image/jpeg;base64,${base64Encode(bytes)}';
@@ -161,14 +144,12 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
     try {
       await FirebaseFirestore.instance.collection('stray_pins').doc(id).update(fields);
     } catch (_) {
-      // The live stream will resync the true state regardless.
+
     }
   }
 
   Future<void> _deletePin(StrayAnimalRecord record) async {
     try {
-      // The photo is stored as Base64 text inside the document itself (not
-      // a separate Storage blob), so deleting the doc removes the photo too.
       await FirebaseFirestore.instance.collection('stray_pins').doc(record.id).delete();
     } catch (_) {}
   }
@@ -425,8 +406,6 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
     });
 
     _mapController.move(clinic.location!, 17.0);
-    // Just reveal the pin on the map - the user taps it themselves to open
-    // the clinic's details, same as any other vet clinic marker.
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Tap the pin to see clinic details.')),
     );
@@ -435,8 +414,6 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
   Future<void> _openCamera() async {
     if (_myCurrentLocation == null) return;
 
-    // Compressed and downsized so the Base64 copy we store in Firestore
-    // stays well under its 1MB document limit.
     final XFile? photo = await _picker.pickImage(
       source: ImageSource.camera,
       maxWidth: 1024,
@@ -803,10 +780,6 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
     );
   }
 
-  // Vet clinic markers are deliberately shaped/colored differently from the
-  // stray-animal photo pins (a teal map-pin with a clinic icon, vs. a
-  // circular photo avatar) so the two pin types read as distinct at a
-  // glance. Tapping one only opens the read-only clinic details page.
   Marker _buildVetClinicMarker(VetClinicPin pin) {
     return Marker(
       point: pin.location!,

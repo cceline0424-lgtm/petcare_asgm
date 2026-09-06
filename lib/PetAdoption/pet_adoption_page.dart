@@ -292,8 +292,7 @@ class _PetAdoptionPageState extends State<PetAdoptionPage> {
           if (name != null) _adoptedPetNames.add(name);
         }
       } catch (_) {
-        // Leave the catalog unfiltered if Firestore is briefly unreachable,
-        // rather than blocking browsing entirely.
+
       }
     }
 

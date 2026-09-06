@@ -84,15 +84,12 @@ class _HomePageState extends State<HomePage> {
                 .replaceAll(' Years', '')
                 .replaceAll(' Year', '')
                 .replaceAll(' Months', ''),
-            // Manually-added pets store a local on-device file path;
-            // adopted pets keep a network catalog URL.
             'image': data['imagePath'] ?? '',
             'isNetwork': (data['imagePath'] ?? '').toString().startsWith('http'),
           });
         }
       } catch (_) {
-        // Leave the dashboard's pet list empty rather than crashing the
-        // whole Home page if Firestore is briefly unreachable.
+
       }
     }
 
@@ -112,9 +109,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// Best-effort location lookup shared by the "nearby strays" and weather
-  /// tip features. Returns null (rather than throwing) if location services
-  /// or permissions aren't available, so callers can fall back gracefully.
   Future<Position?> _getCurrentPositionSafe() async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -152,9 +146,6 @@ class _HomePageState extends State<HomePage> {
           data['id'] = doc.id;
           final record = StrayAnimalRecord.fromJson(data);
 
-          // Only surface strays within 1km of where the user actually is
-          // right now. If we couldn't get a location fix, fall back to
-          // showing the most recent reports rather than hiding everything.
           if (position != null) {
             final userLocation = LatLng(position.latitude, position.longitude);
             final distanceInMeters = distanceCalc(userLocation, record.location);
@@ -165,8 +156,7 @@ class _HomePageState extends State<HomePage> {
         } catch (_) {}
       }
     } catch (_) {
-      // Leave the dashboard's stray list empty rather than crashing the
-      // whole Home page if Firestore is briefly unreachable.
+
     }
 
     _recentStrays = loadedStrays.reversed.take(2).toList();

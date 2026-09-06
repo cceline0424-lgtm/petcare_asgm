@@ -52,11 +52,6 @@ class PetRecord {
     );
   }
 
-  /// Resolves [imagePath] to something Flutter can paint. Manually-added
-  /// pets store a local on-device file path (no Firebase Storage/billing
-  /// needed - only this device ever needs to see this pet's photo), while
-  /// adopted pets keep the shared catalog photo URL, which is a normal
-  /// network image.
   ImageProvider? get photoProvider {
     if (imagePath.isEmpty) return null;
     if (imagePath.startsWith('http')) return NetworkImage(imagePath);
@@ -97,9 +92,6 @@ class _PetInfoPageState extends State<PetInfoPage> {
       return;
     }
 
-    // Both manually-added pets and adopted pets are written to this same
-    // collection now (adoption_form_page.dart tags adopted pets with
-    // isAdopted: true), so one query covers everything.
     final List<PetRecord> loaded = [];
     try {
       final snap = await _petsCollection.where('uid', isEqualTo: _uid).get();
@@ -109,8 +101,7 @@ class _PetInfoPageState extends State<PetInfoPage> {
         loaded.add(PetRecord.fromJson(data));
       }
     } catch (_) {
-      // Leave the list empty rather than crashing the page if Firestore is
-      // briefly unreachable.
+
     }
 
     if (!mounted) return;
@@ -122,10 +113,6 @@ class _PetInfoPageState extends State<PetInfoPage> {
     });
   }
 
-  /// Copies [file] into this app's local documents folder and returns the
-  /// saved file's on-device path. Photos never leave the device - only the
-  /// path string is synced to Firestore - so no Firebase Storage (and no
-  /// billing plan) is needed.
   Future<String> _savePhotoLocally(File file, String petId) async {
     final docsDir = await getApplicationDocumentsDirectory();
     final petPhotosDir = Directory('${docsDir.path}/pet_photos/$_uid');
@@ -138,11 +125,6 @@ class _PetInfoPageState extends State<PetInfoPage> {
     return savedPath;
   }
 
-  /// Best-effort cleanup of a pet's old local photo file when it's replaced
-  /// or the pet is deleted. Failures are ignored - an orphaned file isn't
-  /// worth failing the user-facing action over. Adopted pets use catalog
-  /// photo URLs we don't own, so this is a no-op for those (only local
-  /// paths are ever deleted).
   Future<void> _deletePhotoIfAny(String imagePath) async {
     if (imagePath.isEmpty || imagePath.startsWith('http')) return;
     try {
@@ -158,8 +140,6 @@ class _PetInfoPageState extends State<PetInfoPage> {
     final ageCtrl = TextEditingController(text: existingPet?.age ?? '');
     String selectedGender = (existingPet != null && existingPet.gender.isNotEmpty) ? existingPet.gender : 'Male';
 
-    // Local file for preview only - nothing is uploaded to Storage until
-    // the user actually taps Save, so cancelling the dialog uploads nothing.
     File? tempImage;
     String? existingImageUrl = existingPet?.imagePath.isNotEmpty == true ? existingPet!.imagePath : null;
     bool isSaving = false;
@@ -332,14 +312,10 @@ class _PetInfoPageState extends State<PetInfoPage> {
 
     try {
       await _petsCollection.doc(pet.id).delete();
-      // Adopted pets use catalog photo URLs we don't own, so this is a
-      // no-op for them - _deletePhotoIfAny only touches Storage URLs.
       if (pet.imagePath.isNotEmpty) {
         await _deletePhotoIfAny(pet.imagePath);
       }
     } catch (_) {
-      // If the delete fails, reload so the list reflects Firestore's
-      // actual state rather than an optimistic removal that didn't stick.
       _loadPets();
     }
   }
@@ -377,9 +353,6 @@ class _PetInfoPageState extends State<PetInfoPage> {
         itemCount: _myPets.length,
         itemBuilder: (context, index) {
           final pet = _myPets[index];
-
-          // Manually-added pets use a local on-device file; adopted pets
-          // keep a network catalog URL. photoProvider resolves either.
           final ImageProvider? petImage = pet.photoProvider;
 
           return Card(

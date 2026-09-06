@@ -47,14 +47,6 @@ class StrayAnimalRecord {
     );
   }
 
-  /// Resolves [imageUrl] to something Flutter can actually paint.
-  ///
-  /// Stray pins are shared across every user viewing the map, so the photo
-  /// has to live somewhere everyone can read it - it's stored as a
-  /// Base64-encoded `data:image/...` string right inside the Firestore
-  /// document (no Firebase Storage/billing needed). This also still
-  /// understands the old `https://firebasestorage...` URLs from pins that
-  /// were created before this change, so existing pins don't break.
   ImageProvider? get imageProvider {
     if (imageUrl.isEmpty) return null;
     if (imageUrl.startsWith('data:image')) {

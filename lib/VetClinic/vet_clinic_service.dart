@@ -5,8 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// A single vet clinic entry. [location] starts out null (it is not stored
-/// in the spreadsheet) and gets filled in lazily by [VetClinicService.resolveLocations].
 class VetClinicPin {
   final String id;
   final String name;
@@ -43,9 +41,6 @@ class VetClinicPin {
     );
   }
 
-  /// The clinic's own address, exactly as given in the directory - this is
-  /// what gets geocoded, not the clinic name. Postcode is included because
-  /// it's the single biggest accuracy boost for Malaysian addresses.
   String get geocodeQuery {
     String clean(String s) => s.replaceAll(RegExp(r',\s*$'), '').trim();
     final parts = [address, postcode, district, state, 'Malaysia']
@@ -55,8 +50,6 @@ class VetClinicPin {
     return parts.join(', ');
   }
 
-  /// Shape expected by ClinicDetailsPage / the VetClinicPage list cards, so
-  /// the same detail screen can be reused from the map.
   Map<String, dynamic> toClinicData() {
     return {
       'name': name,
@@ -68,9 +61,6 @@ class VetClinicPin {
   }
 }
 
-/// Loads the clinic directory from the bundled spreadsheet and resolves
-/// clinic addresses to map coordinates, caching results on-device so the
-/// rate-limited geocoding lookup only ever has to run once per clinic.
 class VetClinicService {
   VetClinicService._();
 
@@ -119,8 +109,6 @@ class VetClinicService {
     'W.P. Putrajaya',
   ];
 
-  /// Stable id for a clinic derived from its name + address. Used both as a
-  /// widget key and as the geocode cache key, so it must stay deterministic.
   static String idFor(String name, String address) =>
       '$name|$address'.hashCode.toString();
 
@@ -145,8 +133,6 @@ class VetClinicService {
     return 'All States';
   }
 
-  /// Parses the bundled klinik.xlsx into a flat list of clinic records.
-  /// This is local/offline and cheap - safe to call every time the app opens.
   static Future<List<VetClinicPin>> loadClinics() async {
     final ByteData data = await rootBundle.load('assets/klinik.xlsx');
     final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
@@ -156,12 +142,6 @@ class VetClinicService {
     for (var table in excel.tables.keys) {
       final sheet = excel.tables[table]!;
 
-      // The workbook can contain other sheets with a completely different
-      // column layout (e.g. an unrelated hospital-license list) or empty
-      // placeholder sheets. Only parse sheets that actually match the vet
-      // clinic directory's header row - otherwise rows get misread into the
-      // wrong fields and most of them (silently) get filtered out, which
-      // looks like "only one clinic loaded" to the user.
       if (sheet.maxRows < 4) continue;
       final header = sheet.row(2);
       final isClinicSheet = header.length > 2 &&
@@ -206,16 +186,6 @@ class VetClinicService {
     return extracted;
   }
 
-  /// Resolves lat/lng for [clinics], using any cached value first and
-  /// falling back to a Nominatim lookup for the rest.
-  ///
-  /// Nominatim's usage policy allows roughly one request per second, so
-  /// lookups run sequentially with a short delay between them.
-  /// [onEachResolved] fires after every clinic (cached or freshly geocoded)
-  /// so the caller can add markers to the map incrementally instead of
-  /// waiting for the whole batch to finish. Pass [shouldStop] so a caller
-  /// can cancel a long-running batch (e.g. when the page is disposed or the
-  /// user switches states).
   static Future<void> resolveLocations(
       List<VetClinicPin> clinics, {
         void Function(VetClinicPin pin)? onEachResolved,
@@ -247,9 +217,6 @@ class VetClinicService {
       try {
         LatLng? found = await _geocode(pin.geocodeQuery);
 
-        // Full street-level addresses sometimes don't match anything in
-        // OpenStreetMap. Falling back to postcode + district + state still
-        // lands the pin in the right neighbourhood rather than dropping it.
         if (found == null) {
           final fallbackParts = [pin.postcode, pin.district, pin.state, 'Malaysia']
               .map((s) => s.replaceAll(RegExp(r',\s*$'), '').trim())
@@ -267,10 +234,8 @@ class VetClinicService {
           onEachResolved?.call(pin);
         }
       } catch (_) {
-        // Skip clinics that fail to geocode; they simply won't get a pin.
-      }
 
-      // Respect Nominatim's fair-use rate limit before the next lookup.
+      }
       await Future.delayed(const Duration(milliseconds: 1100));
     }
   }

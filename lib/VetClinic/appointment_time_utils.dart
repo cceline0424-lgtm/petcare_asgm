@@ -1,15 +1,3 @@
-/// Helpers for figuring out whether a stored appointment's scheduled date
-/// and time have already passed - used so "Upcoming Appointment" reminders
-/// (in the notification tray and on the Home dashboard) disappear on their
-/// own once the visit is over, instead of only going away when something
-/// manually flips the appointment's `status` field.
-///
-/// Parsing is deliberately forgiving: it accepts ISO-style dates
-/// ('2026-09-16') as well as human-readable ones ('16 Sep 2026',
-/// 'Sep 16, 2026'), and times either in 24-hour ('14:30') or 12-hour
-/// ('2:30 PM') form. If the stored date can't be understood at all, the
-/// appointment is treated as NOT past (i.e. the reminder is kept visible)
-/// so a formatting mismatch can never silently hide a real appointment.
 library;
 
 const Map<String, int> _kMonthAbbreviations = {
@@ -21,13 +9,9 @@ DateTime? _parseAppointmentDate(String dateStr) {
   final trimmed = dateStr.trim();
   if (trimmed.isEmpty) return null;
 
-  // Handles ISO-style 'yyyy-MM-dd' (and full ISO timestamps).
   final iso = DateTime.tryParse(trimmed);
   if (iso != null) return DateTime(iso.year, iso.month, iso.day);
 
-  // Handles the app's own booking format: '${date.day}/${date.month}/${date.year}'
-  // e.g. '5/9/2026' - day first, no zero-padding, matching how
-  // AppointmentBookingPage actually saves it.
   final slashMatch = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})$').firstMatch(trimmed);
   if (slashMatch != null) {
     final day = int.tryParse(slashMatch.group(1)!);
@@ -38,7 +22,6 @@ DateTime? _parseAppointmentDate(String dateStr) {
     }
   }
 
-  // Handles '16 Sep 2026' or 'Sep 16, 2026' style strings.
   final match = RegExp(r'(\d{1,2})\D+([A-Za-z]{3,})\D+(\d{4})').firstMatch(trimmed) ??
       RegExp(r'([A-Za-z]{3,})\D+(\d{1,2})\D+(\d{4})').firstMatch(trimmed);
   if (match == null) return null;
@@ -75,8 +58,6 @@ DateTime? _parseAppointmentDate(String dateStr) {
   return (hour: hour, minute: minute);
 }
 
-/// Returns the appointment's scheduled [DateTime], combining its 'date' and
-/// 'time' fields, or null if the stored strings can't be parsed.
 DateTime? parseAppointmentDateTime(Map<String, dynamic> appointment) {
   final dateStr = appointment['date']?.toString() ?? '';
   final date = _parseAppointmentDate(dateStr);
@@ -88,9 +69,6 @@ DateTime? parseAppointmentDateTime(Map<String, dynamic> appointment) {
   return DateTime(date.year, date.month, date.day, time?.hour ?? 23, time?.minute ?? 59);
 }
 
-/// Whether [appointment]'s scheduled date/time is already in the past.
-/// Unparseable dates are treated as NOT past, so the reminder stays visible
-/// rather than silently vanishing due to an unexpected date format.
 bool isAppointmentPast(Map<String, dynamic> appointment) {
   final scheduled = parseAppointmentDateTime(appointment);
   if (scheduled == null) return false;

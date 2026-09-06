@@ -71,10 +71,6 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
       final user = await DatabaseHelper.instance.getUserByUsername(username);
       if (user != null && mounted) {
         setState(() {
-          // Pre-fill with the account's saved name, same as the "Full
-          // Name" field on the adoption form - the user can still edit
-          // this before confirming, it's just a starting point so they
-          // don't have to retype their own name every booking.
           if (_ownerNameController.text.isEmpty) {
             final savedName = (user['name'] as String?)?.trim();
             _ownerNameController.text = (savedName != null && savedName.isNotEmpty) ? savedName : username;
@@ -113,8 +109,7 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
         loadedPets.add(PetRecord.fromJson(data));
       }
     } catch (_) {
-      // Leave the pet picker empty rather than crashing the booking flow if
-      // Firestore is briefly unreachable.
+
     }
 
     if (mounted) {
