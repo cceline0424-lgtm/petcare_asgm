@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../main.dart';
 import 'auth_service.dart';
 import 'database_helper.dart';
@@ -34,26 +35,50 @@ class _LoginPageState extends State<LoginPage> {
     final input = _identifierController.text.trim();
     final password = _passwordController.text;
 
-    Map<String, dynamic>? user = await DatabaseHelper.instance.getUserByUsername(input);
-    user ??= await DatabaseHelper.instance.getUserByEmail(input);
+    // Firebase Auth only signs in by email, so if the user typed a username
+    // instead, look up the email that goes with it first.
+    String? email = input;
+    if (!input.contains('@')) {
+      final profile = await DatabaseHelper.instance.getUserByUsername(input);
+      email = profile?['email'] as String?;
+    }
 
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    if (user == null || user['password'] != password) {
+    if (email == null) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Invalid username/email or password.')),
       );
       return;
     }
 
-    await AuthService.saveSession(user!['username'] as String);
+    String? username;
+    UserCredential? credential;
+    try {
+      credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      username = await AuthService.getLoggedInUsername();
+    } on FirebaseAuthException catch (_) {
+      credential = null;
+    }
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (credential == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid username/email or password.')),
+      );
+      return;
+    }
 
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => MainNavigationScreen(
-          username: (user!['name'] as String?) ?? user!['username'] as String,
+          username: username ?? credential!.user?.displayName ?? 'User',
         ),
       ),
           (route) => false,

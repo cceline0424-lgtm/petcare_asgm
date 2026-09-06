@@ -1,7 +1,6 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:petcare_asgm/Auth/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'pet_details_page.dart';
 
 class PetAdoptionPage extends StatefulWidget {
@@ -278,17 +277,23 @@ class _PetAdoptionPageState extends State<PetAdoptionPage> {
   Future<void> _loadAdoptedPetsAndFilter() async {
     setState(() => _isLoading = true);
 
-    final username = await AuthService.getLoggedInUsername();
-    final String adoptedPetsKey = 'user_adopted_pets_$username';
-
-    final prefs = await SharedPreferences.getInstance();
-    List<String> savedPetsJson = prefs.getStringList(adoptedPetsKey) ?? [];
-
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     _adoptedPetNames.clear();
-    for (String petStr in savedPetsJson) {
-      final Map<String, dynamic> petData = jsonDecode(petStr);
-      if (petData['name'] != null) {
-        _adoptedPetNames.add(petData['name']);
+
+    if (uid != null) {
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('pets')
+            .where('uid', isEqualTo: uid)
+            .where('isAdopted', isEqualTo: true)
+            .get();
+        for (final doc in snap.docs) {
+          final name = doc.data()['name'];
+          if (name != null) _adoptedPetNames.add(name);
+        }
+      } catch (_) {
+        // Leave the catalog unfiltered if Firestore is briefly unreachable,
+        // rather than blocking browsing entirely.
       }
     }
 

@@ -5,8 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import 'package:petcare_asgm/VetClinic/vet_clinic_page.dart';
+import 'package:petcare_asgm/Map/stray_animal_map_page.dart';
 import 'package:petcare_asgm/UserProfile/my_appointments_page.dart';
 import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
+
 import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
 import 'package:petcare_asgm/VetClinic/appointment_time_utils.dart';
 import 'package:petcare_asgm/Map/record.dart';
@@ -61,37 +67,35 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadMyPets() async {
-    final prefs = await SharedPreferences.getInstance();
     List<Map<String, dynamic>> combinedPets = [];
 
-    final String myPetsKey = 'my_pets_${widget.username}';
-    final String adoptedPetsKey = 'user_adopted_pets_${widget.username}';
-
-    final List<String>? localPetsJson = prefs.getStringList(myPetsKey);
-    if (localPetsJson != null) {
-      for (String jsonStr in localPetsJson) {
-        try {
-          final data = jsonDecode(jsonStr);
-          final record = PetRecord.fromJson(data);
-          combinedPets.add({'name': record.name, 'age': record.age.toString(), 'image': record.imagePath, 'isNetwork': false});
-        } catch (e) {}
-      }
-    }
-
-    final List<String>? adoptedPetsJson = prefs.getStringList(adoptedPetsKey);
-    if (adoptedPetsJson != null) {
-      for (String jsonStr in adoptedPetsJson) {
-        try {
-          final data = jsonDecode(jsonStr);
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('pets')
+            .where('uid', isEqualTo: uid)
+            .get();
+        for (final doc in snap.docs) {
+          final data = doc.data();
           combinedPets.add({
             'name': data['name'] ?? 'Unknown',
-            'age': data['age']?.toString().replaceAll(' Years', '').replaceAll(' Year', '').replaceAll(' Months', '') ?? '?',
-            'image': data['photoUrl'] ?? '',
-            'isNetwork': true,
+            'age': (data['age']?.toString() ?? '?')
+                .replaceAll(' Years', '')
+                .replaceAll(' Year', '')
+                .replaceAll(' Months', ''),
+            // Manually-added pets store a local on-device file path;
+            // adopted pets keep a network catalog URL.
+            'image': data['imagePath'] ?? '',
+            'isNetwork': (data['imagePath'] ?? '').toString().startsWith('http'),
           });
-        } catch (e) {}
+        }
+      } catch (_) {
+        // Leave the dashboard's pet list empty rather than crashing the
+        // whole Home page if Firestore is briefly unreachable.
       }
     }
+
     _allDisplayPets = combinedPets;
   }
 
@@ -136,19 +140,17 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadRecentStrays() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String>? recordsJson = prefs.getStringList('stray_pins');
+    final position = await _getCurrentPositionSafe();
+    const Distance distanceCalc = Distance();
 
-    if (recordsJson != null) {
-      final position = await _getCurrentPositionSafe();
-      const Distance distanceCalc = Distance();
-
-      List<StrayAnimalRecord> loadedStrays = [];
-      for (String jsonStr in recordsJson) {
+    List<StrayAnimalRecord> loadedStrays = [];
+    try {
+      final snap = await FirebaseFirestore.instance.collection('stray_pins').get();
+      for (final doc in snap.docs) {
         try {
-          final Map<String, dynamic> data = jsonDecode(jsonStr);
+          final data = Map<String, dynamic>.from(doc.data());
+          data['id'] = doc.id;
           final record = StrayAnimalRecord.fromJson(data);
-          if (!record.imageFile.existsSync()) continue;
 
           // Only surface strays within 1km of where the user actually is
           // right now. If we couldn't get a location fix, fall back to
@@ -160,24 +162,27 @@ class _HomePageState extends State<HomePage> {
           }
 
           loadedStrays.add(record);
-        } catch (e) {}
+        } catch (_) {}
       }
+    } catch (_) {
+      // Leave the dashboard's stray list empty rather than crashing the
+      // whole Home page if Firestore is briefly unreachable.
+    }
 
-      _recentStrays = loadedStrays.reversed.take(2).toList();
+    _recentStrays = loadedStrays.reversed.take(2).toList();
 
-      for (var record in _recentStrays) {
-        try {
-          final geoResponse = await http.get(
-            Uri.parse('https://nominatim.openstreetmap.org/reverse?format=json&lat=${record.location.latitude}&lon=${record.location.longitude}'),
-            headers: {'User-Agent': 'PetHealthCareApp/1.0'},
-          );
-          if (geoResponse.statusCode == 200) {
-            final geoData = jsonDecode(geoResponse.body);
-            _strayAddresses[record.id] = geoData['display_name'] ?? 'Unknown Location';
-          }
-        } catch (e) {
-          _strayAddresses[record.id] = 'Location unavailable';
+    for (var record in _recentStrays) {
+      try {
+        final geoResponse = await http.get(
+          Uri.parse('https://nominatim.openstreetmap.org/reverse?format=json&lat=${record.location.latitude}&lon=${record.location.longitude}'),
+          headers: {'User-Agent': 'PetHealthCareApp/1.0'},
+        );
+        if (geoResponse.statusCode == 200) {
+          final geoData = jsonDecode(geoResponse.body);
+          _strayAddresses[record.id] = geoData['display_name'] ?? 'Unknown Location';
         }
+      } catch (e) {
+        _strayAddresses[record.id] = 'Location unavailable';
       }
     }
   }
@@ -551,10 +556,9 @@ class _HomePageState extends State<HomePage> {
                   height: 50,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(8),
-                    image: DecorationImage(
-                      image: FileImage(stray.imageFile),
-                      fit: BoxFit.cover,
-                    ),
+                    image: stray.imageProvider != null
+                        ? DecorationImage(image: stray.imageProvider!, fit: BoxFit.cover)
+                        : null,
                   ),
                 ),
                 const SizedBox(width: 12),

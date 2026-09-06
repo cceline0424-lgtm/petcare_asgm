@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'database_helper.dart';
 import 'email_service.dart';
 
@@ -14,18 +15,12 @@ class ForgetPasswordPage extends StatefulWidget {
 
 class _ForgetPasswordPageState extends State<ForgetPasswordPage> {
   final _emailFormKey = GlobalKey<FormState>();
-  final _resetFormKey = GlobalKey<FormState>();
 
   final _emailController = TextEditingController();
   final _otpController = TextEditingController();
-  final _newPasswordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-
-  final _passwordFocus = FocusNode();
   final RegExp _emailRegex = RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,4}$');
 
   bool _emailVerified = false;
-  bool _isLoading = false;
   bool _isSendingCode = false;
   bool _isConfirmingCode = false;
   bool _codeSent = false;
@@ -34,22 +29,9 @@ class _ForgetPasswordPageState extends State<ForgetPasswordPage> {
   int _resendCooldown = 0;
   Timer? _cooldownTimer;
 
-  bool _obscureNewPassword = true;
-  bool _obscureConfirmPassword = true;
-  bool _showPasswordHints = false;
-
   @override
   void initState() {
     super.initState();
-    _newPasswordController.addListener(() => setState(() {}));
-    _confirmPasswordController.addListener(() => setState(() {}));
-
-    _passwordFocus.addListener(() {
-      setState(() {
-        _showPasswordHints = _passwordFocus.hasFocus || _newPasswordController.text.isNotEmpty;
-      });
-    });
-
     _emailController.addListener(() {
       if (_emailVerified || _codeSent) {
         setState(() {
@@ -66,9 +48,6 @@ class _ForgetPasswordPageState extends State<ForgetPasswordPage> {
   void dispose() {
     _emailController.dispose();
     _otpController.dispose();
-    _newPasswordController.dispose();
-    _confirmPasswordController.dispose();
-    _passwordFocus.dispose();
     _cooldownTimer?.cancel();
     super.dispose();
   }
@@ -135,42 +114,26 @@ class _ForgetPasswordPageState extends State<ForgetPasswordPage> {
     }
 
     setState(() => _isConfirmingCode = true);
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
-    setState(() => _isConfirmingCode = false);
 
     if (entered != _generatedOtp) {
+      if (!mounted) return;
+      setState(() => _isConfirmingCode = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Incorrect code. Please try again.')));
       return;
     }
 
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: _emailController.text.trim());
+    } on FirebaseAuthException catch (_) {
+    }
+
+    if (!mounted) return;
     setState(() {
+      _isConfirmingCode = false;
       _emailVerified = true;
       _codeSent = false;
       _cooldownTimer?.cancel();
     });
-  }
-
-  bool _hasMetAllPasswordCriteria() {
-    final p = _newPasswordController.text;
-    return p.isNotEmpty &&
-        p.length >= 8 &&
-        RegExp(r'[A-Z]').hasMatch(p) &&
-        RegExp(r'[0-9]').hasMatch(p) &&
-        RegExp(r'''[!@#\$%^&*(),.?":{}|<>_\-+=\[\]/\\~`]''').hasMatch(p);
-  }
-
-  Future<void> _resetPassword() async {
-    if (!_resetFormKey.currentState!.validate()) return;
-    if (!_hasMetAllPasswordCriteria()) return;
-
-    setState(() => _isLoading = true);
-    await DatabaseHelper.instance.updatePasswordByEmail(_emailController.text.trim(), _newPasswordController.text);
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset successfully. Please log in.')));
-    Navigator.of(context).pop();
   }
 
   @override
@@ -190,12 +153,17 @@ class _ForgetPasswordPageState extends State<ForgetPasswordPage> {
               const SizedBox(height: 8),
               IconButton(padding: EdgeInsets.zero, icon: Icon(Icons.arrow_back, color: textColor), onPressed: () => Navigator.of(context).pop()),
               const SizedBox(height: 8),
-              Text(_emailVerified ? 'Reset Password' : 'Forget Password', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: textColor)),
+              Text(_emailVerified ? 'Check Your Email' : 'Forget Password', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: textColor)),
               const SizedBox(height: 8),
-              Text(_emailVerified ? 'Enter and confirm your new password.' : 'Enter the email linked to your account to receive a verification code.', style: TextStyle(color: hintColor, fontSize: 14)),
+              Text(
+                _emailVerified
+                    ? 'We sent a secure password reset link to your email.'
+                    : 'Enter the email linked to your account to receive a verification code.',
+                style: TextStyle(color: hintColor, fontSize: 14),
+              ),
               const SizedBox(height: 28),
               if (!_emailVerified) _buildEmailStep(isDark, textColor, hintColor),
-              if (_emailVerified) _buildResetStep(isDark, textColor, hintColor),
+              if (_emailVerified) _buildDoneStep(isDark, textColor, hintColor),
             ],
           ),
         ),
@@ -271,82 +239,50 @@ class _ForgetPasswordPageState extends State<ForgetPasswordPage> {
     );
   }
 
-  Widget _buildResetStep(bool isDark, Color textColor, Color hintColor) {
-    return Form(
-      key: _resetFormKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('New Password', style: TextStyle(color: hintColor, fontSize: 14)),
-          const SizedBox(height: 6),
-          TextFormField(
-            controller: _newPasswordController,
-            focusNode: _passwordFocus,
-            obscureText: _obscureNewPassword,
-            autovalidateMode: AutovalidateMode.onUserInteraction,
-            style: TextStyle(color: textColor),
-            decoration: _fieldDecoration(isDark).copyWith(
-              suffixIcon: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_hasMetAllPasswordCriteria()) const Icon(Icons.check_circle, color: Colors.green),
-                  IconButton(icon: Icon(_obscureNewPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: hintColor), onPressed: () => setState(() => _obscureNewPassword = !_obscureNewPassword)),
-                ],
+  Widget _buildDoneStep(bool isDark, Color textColor, Color hintColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Center(
+          child: Column(
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.grey[800] : Colors.brown[100],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.mark_email_read_outlined, size: 36, color: isDark ? Colors.white : Colors.brown[800]),
               ),
-            ),
-            validator: (value) => (value == null || value.isEmpty) ? 'Please enter a new password' : null,
-          ),
-          const SizedBox(height: 8),
-
-          if (_showPasswordHints) ...[
-            _buildPasswordHint('Minimum 8 characters', _newPasswordController.text.isNotEmpty && _newPasswordController.text.length >= 8),
-            _buildPasswordHint('At least 1 uppercase letter', RegExp(r'[A-Z]').hasMatch(_newPasswordController.text)),
-            _buildPasswordHint('At least 1 number', RegExp(r'[0-9]').hasMatch(_newPasswordController.text)),
-            _buildPasswordHint('At least 1 special symbol', RegExp(r'''[!@#\$%^&*(),.?":{}|<>_\-+=\[\]/\\~`]''').hasMatch(_newPasswordController.text)),
-          ],
-          const SizedBox(height: 18),
-
-          Text('Confirm New Password', style: TextStyle(color: hintColor, fontSize: 14)),
-          const SizedBox(height: 6),
-          TextFormField(
-            controller: _confirmPasswordController,
-            obscureText: _obscureConfirmPassword,
-            autovalidateMode: AutovalidateMode.onUserInteraction,
-            style: TextStyle(color: textColor),
-            decoration: _fieldDecoration(isDark).copyWith(
-              suffixIcon: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_confirmPasswordController.text.isNotEmpty) Icon(_confirmPasswordController.text == _newPasswordController.text ? Icons.check_circle : Icons.cancel, color: _confirmPasswordController.text == _newPasswordController.text ? Colors.green : Colors.red),
-                  IconButton(icon: Icon(_obscureConfirmPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: hintColor), onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword)),
-                ],
+              const SizedBox(height: 20),
+              Text(
+                'Open the email we just sent to ${_emailController.text.trim()} and tap the link to choose a new password.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: hintColor, fontSize: 14),
               ),
-            ),
-            validator: (value) {
-              if (value == null || value.isEmpty) return 'Please confirm your new password';
-              if (value != _newPasswordController.text) return 'Passwords do not match';
-              return null;
-            },
+            ],
           ),
-          const SizedBox(height: 28),
-
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.brown[700], foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-              onPressed: _isLoading ? null : _resetPassword,
-              child: _isLoading ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5)) : const Text('Reset Password', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-            ),
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.brown[700], foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Back to Login', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: TextButton(
+            onPressed: (_isSendingCode || _resendCooldown > 0) ? null : _sendVerificationCode,
+            child: Text(_resendCooldown > 0 ? 'Resend link in ${_resendCooldown}s' : "Didn't get it? Resend"),
+          ),
+        ),
+      ],
     );
-  }
-
-  Widget _buildPasswordHint(String text, bool isMet) {
-    final color = isMet ? Colors.green : Colors.red;
-    return Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(children: [Icon(isMet ? Icons.check : Icons.close, size: 16, color: color), const SizedBox(width: 8), Text(text, style: TextStyle(fontSize: 12, color: color))]));
   }
 
   InputDecoration _fieldDecoration(bool isDark) {

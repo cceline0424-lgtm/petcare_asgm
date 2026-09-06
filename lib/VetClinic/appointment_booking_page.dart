@@ -1,7 +1,6 @@
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:petcare_asgm/VetClinic/appointment_storage.dart';
 import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
 import 'package:petcare_asgm/Auth/auth_service.dart';
@@ -72,6 +71,15 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
       final user = await DatabaseHelper.instance.getUserByUsername(username);
       if (user != null && mounted) {
         setState(() {
+          // Pre-fill with the account's saved name, same as the "Full
+          // Name" field on the adoption form - the user can still edit
+          // this before confirming, it's just a starting point so they
+          // don't have to retype their own name every booking.
+          if (_ownerNameController.text.isEmpty) {
+            final savedName = (user['name'] as String?)?.trim();
+            _ownerNameController.text = (savedName != null && savedName.isNotEmpty) ? savedName : username;
+          }
+
           String rawContact = user['phone'] ?? '';
           if (rawContact.startsWith('+60')) {
             rawContact = rawContact.substring(3);
@@ -87,35 +95,26 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
       _isLoadingPets = true;
     });
 
-    final currentUser = await AuthService.getLoggedInUsername();
-    if (currentUser == null) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
       if (mounted) setState(() => _isLoadingPets = false);
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final List<String>? manualPetsJson = prefs.getStringList('my_pets_$currentUser');
-    final List<String>? adoptedPetsJson = prefs.getStringList('user_adopted_pets_$currentUser');
-
     List<PetRecord> loadedPets = [];
-
-    if (manualPetsJson != null) {
-      for (String jsonStr in manualPetsJson) {
-        try {
-          loadedPets.add(PetRecord.fromJson(jsonDecode(jsonStr)));
-        } catch (e) {}
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('pets')
+          .where('uid', isEqualTo: uid)
+          .get();
+      for (final doc in snap.docs) {
+        final data = Map<String, dynamic>.from(doc.data());
+        data['id'] = doc.id;
+        loadedPets.add(PetRecord.fromJson(data));
       }
-    }
-
-    if (adoptedPetsJson != null) {
-      for (String jsonStr in adoptedPetsJson) {
-        try {
-          final data = jsonDecode(jsonStr);
-          data['isAdopted'] = true;
-          data['age'] = data['age']?.toString().replaceAll(' Years', '').replaceAll(' Year', '').replaceAll(' Months', '');
-          loadedPets.add(PetRecord.fromJson(data));
-        } catch (e) {}
-      }
+    } catch (_) {
+      // Leave the pet picker empty rather than crashing the booking flow if
+      // Firestore is briefly unreachable.
     }
 
     if (mounted) {
@@ -614,14 +613,7 @@ class _AppointmentBookingPageState extends State<AppointmentBookingPage> {
                   final pet = _myPets[index];
                   final isSelected = _selectedPet?.name == pet.name;
 
-                  ImageProvider? petImage;
-                  if (pet.imagePath.isNotEmpty) {
-                    if (pet.isAdopted) {
-                      petImage = NetworkImage(pet.imagePath);
-                    } else {
-                      petImage = FileImage(File(pet.imagePath));
-                    }
-                  }
+                  final ImageProvider? petImage = pet.photoProvider;
 
                   return GestureDetector(
                     onTap: () {

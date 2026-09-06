@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -6,7 +7,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:petcare_asgm/Map/record.dart';
 import 'package:petcare_asgm/main.dart';
 import 'package:petcare_asgm/VetClinic/vet_clinic_service.dart';
@@ -31,6 +33,8 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
   bool _isNightMode = false;
 
   final List<StrayAnimalRecord> _strayRecords = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _strayPinsSub;
+  bool _isCreatingPin = false;
 
   // Vet clinic pins: loaded once (offline) from the clinic directory, then
   // resolved to map coordinates on demand. These pins are read-only on the
@@ -44,7 +48,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
   @override
   void initState() {
     super.initState();
-    _loadPins();
+    _listenToPins();
     _getRealUserLocation();
     _loadClinicDirectory();
   }
@@ -52,6 +56,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
   @override
   void dispose() {
     _stopClinicLoad = true;
+    _strayPinsSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -113,31 +118,59 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
     );
   }
 
-  Future<void> _savePins() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> recordsJson = _strayRecords.map((r) => jsonEncode(r.toJson())).toList();
-    await prefs.setStringList('stray_pins', recordsJson);
+  /// Stray reports are shared community data, not private per-user data -
+  /// everyone using the app should see the same pins, live, without needing
+  /// to refresh. This listens to the whole 'stray_pins' collection and keeps
+  /// _strayRecords in sync automatically.
+  void _listenToPins() {
+    _strayPinsSub = FirebaseFirestore.instance.collection('stray_pins').snapshots().listen((snap) async {
+      if (!mounted) return;
+
+      final records = <StrayAnimalRecord>[];
+      for (final doc in snap.docs) {
+        try {
+          final data = Map<String, dynamic>.from(doc.data());
+          data['id'] = doc.id;
+          records.add(StrayAnimalRecord.fromJson(data));
+        } catch (_) {}
+      }
+
+      setState(() {
+        _strayRecords
+          ..clear()
+          ..addAll(records);
+      });
+      // Notification-badge "seen" tracking for stray pins now lives in
+      // main.dart (MainNavigationScreen), keyed by pin id rather than a
+      // raw count, so there's nothing to update here any more.
+    });
   }
 
-  Future<void> _loadPins() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String>? recordsJson = prefs.getStringList('stray_pins');
+  /// Encodes a stray photo as a Base64 `data:image/jpeg;base64,...` string so
+  /// it can be stored directly inside the Firestore document and stay
+  /// visible to every user viewing the map - no Firebase Storage (and no
+  /// billing plan) required. The image is already compressed by the picker
+  /// (see `_openCamera`/the retake picker below) so this comfortably fits
+  /// inside Firestore's 1MB document limit.
+  Future<String> _encodePinPhoto(File file, String pinId) async {
+    final bytes = await file.readAsBytes();
+    return 'data:image/jpeg;base64,${base64Encode(bytes)}';
+  }
 
-    if (recordsJson != null && mounted) {
-      setState(() {
-        _strayRecords.clear();
-        for (String jsonStr in recordsJson) {
-          try {
-            final Map<String, dynamic> data = jsonDecode(jsonStr);
-            final record = StrayAnimalRecord.fromJson(data);
-            if (record.imageFile.existsSync()) {
-              _strayRecords.add(record);
-            }
-          } catch (e) {}
-        }
-      });
-      await prefs.setInt('last_seen_stray_count', _strayRecords.length);
+  Future<void> _updatePin(String id, Map<String, dynamic> fields) async {
+    try {
+      await FirebaseFirestore.instance.collection('stray_pins').doc(id).update(fields);
+    } catch (_) {
+      // The live stream will resync the true state regardless.
     }
+  }
+
+  Future<void> _deletePin(StrayAnimalRecord record) async {
+    try {
+      // The photo is stored as Base64 text inside the document itself (not
+      // a separate Storage blob), so deleting the doc removes the photo too.
+      await FirebaseFirestore.instance.collection('stray_pins').doc(record.id).delete();
+    } catch (_) {}
   }
 
   Future<void> _fetchWeatherAndAddress(double lat, double lon) async {
@@ -402,7 +435,13 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
   Future<void> _openCamera() async {
     if (_myCurrentLocation == null) return;
 
-    final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+    // Compressed and downsized so the Base64 copy we store in Firestore
+    // stays well under its 1MB document limit.
+    final XFile? photo = await _picker.pickImage(
+      source: ImageSource.camera,
+      maxWidth: 1024,
+      imageQuality: 60,
+    );
 
     if (photo != null && mounted) {
       _showConfirmationScreen(File(photo.path), _myCurrentLocation!);
@@ -472,32 +511,59 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                         child: const Icon(Icons.refresh, size: 40, color: Colors.brown),
                       ),
                     ),
-                    InkWell(
-                      onTap: () async {
-                        setState(() {
-                          _strayRecords.add(
-                              StrayAnimalRecord(
-                                id: DateTime.now().millisecondsSinceEpoch.toString(),
-                                location: locationToPin,
-                                imageFile: imageFile,
-                              )
-                          );
-                        });
-                        await _savePins();
-                        notificationSignal.value++;
-                        if (mounted) {
-                          Navigator.pop(context);
-                          _mapController.move(locationToPin, 17.0);
-                        }
+                    StatefulBuilder(
+                      builder: (context, setConfirmState) {
+                        return InkWell(
+                          onTap: _isCreatingPin
+                              ? null
+                              : () async {
+                            setConfirmState(() => _isCreatingPin = true);
+
+                            try {
+                              final docRef = FirebaseFirestore.instance.collection('stray_pins').doc();
+                              final imageUrl = await _encodePinPhoto(imageFile, docRef.id);
+                              final uid = FirebaseAuth.instance.currentUser?.uid;
+
+                              await docRef.set({
+                                'lat': locationToPin.latitude,
+                                'lng': locationToPin.longitude,
+                                'imageUrl': imageUrl,
+                                'isRescued': false,
+                                'condition': '',
+                                'activityLog': '',
+                                'medicalActions': '',
+                                'reporterUid': uid,
+                                'createdAt': FieldValue.serverTimestamp(),
+                              });
+
+                              notificationSignal.value++;
+                              if (mounted) {
+                                Navigator.pop(context);
+                                _mapController.move(locationToPin, 17.0);
+                              }
+                            } catch (e) {
+                              setConfirmState(() => _isCreatingPin = false);
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Could not save report: $e')),
+                                );
+                              }
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.brown, width: 2),
+                            ),
+                            child: _isCreatingPin
+                                ? const SizedBox(
+                                width: 40, height: 40,
+                                child: CircularProgressIndicator(strokeWidth: 3, color: Colors.brown))
+                                : const Icon(Icons.check, size: 40, color: Colors.brown),
+                          ),
+                        );
                       },
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.brown, width: 2),
-                        ),
-                        child: const Icon(Icons.check, size: 40, color: Colors.brown),
-                      ),
                     ),
                   ],
                 ),
@@ -510,7 +576,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
     );
   }
 
-  Future<void> _editFieldDialog(String title, String currentValue, Function(String) onSave, StateSetter setModalState) async {
+  Future<void> _editFieldDialog(String title, String currentValue, String pinId, String fieldName, Function(String) onSave, StateSetter setModalState) async {
     TextEditingController controller = TextEditingController(text: currentValue);
 
     await showDialog(
@@ -541,7 +607,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
               onSave(controller.text);
               setModalState(() {});
               setState(() {});
-              _savePins();
+              _updatePin(pinId, {fieldName: controller.text});
               Navigator.pop(ctx);
             },
             child: const Text('Save', style: TextStyle(color: Colors.white)),
@@ -611,10 +677,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                         IconButton(
                           icon: const Icon(Icons.delete, color: Colors.red),
                           onPressed: () {
-                            setState(() {
-                              _strayRecords.removeWhere((r) => r.id == record.id);
-                            });
-                            _savePins();
+                            _deletePin(record);
                             Navigator.pop(context);
                           },
                         ),
@@ -623,13 +686,18 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                     const SizedBox(height: 12),
                     GestureDetector(
                       onTap: () async {
-                        final XFile? newPhoto = await _picker.pickImage(source: ImageSource.camera);
+                        final XFile? newPhoto = await _picker.pickImage(
+                          source: ImageSource.camera,
+                          maxWidth: 1024,
+                          imageQuality: 60,
+                        );
                         if (newPhoto != null) {
+                          final newUrl = await _encodePinPhoto(File(newPhoto.path), record.id);
                           setModalState(() {
-                            record.imageFile = File(newPhoto.path);
+                            record.imageUrl = newUrl;
                           });
                           setState(() {});
-                          _savePins();
+                          _updatePin(record.id, {'imageUrl': newUrl});
                         }
                       },
                       child: Stack(
@@ -641,7 +709,9 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: Colors.grey.shade300),
-                              image: DecorationImage(image: FileImage(record.imageFile), fit: BoxFit.cover),
+                              image: record.imageProvider != null
+                                  ? DecorationImage(image: record.imageProvider!, fit: BoxFit.cover)
+                                  : null,
                             ),
                           ),
                           Container(
@@ -677,7 +747,7 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                               record.isRescued = val;
                             });
                             setState(() {});
-                            _savePins();
+                            _updatePin(record.id, {'isRescued': val});
                           },
                         ),
                       ],
@@ -690,6 +760,8 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                       onTap: () => _editFieldDialog(
                           'Condition',
                           record.condition,
+                          record.id,
+                          'condition',
                               (newText) => record.condition = newText,
                           setModalState
                       ),
@@ -701,6 +773,8 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                       onTap: () => _editFieldDialog(
                           'Activity Log',
                           record.activityLog,
+                          record.id,
+                          'activityLog',
                               (newText) => record.activityLog = newText,
                           setModalState
                       ),
@@ -712,6 +786,8 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                       onTap: () => _editFieldDialog(
                           'Medical Actions',
                           record.medicalActions,
+                          record.id,
+                          'medicalActions',
                               (newText) => record.medicalActions = newText,
                           setModalState
                       ),
@@ -859,10 +935,9 @@ class _StrayAnimalMapPageState extends State<StrayAnimalMapPage> {
                                 width: 4
                             ),
                             boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 2))],
-                            image: DecorationImage(
-                              image: FileImage(record.imageFile),
-                              fit: BoxFit.cover,
-                            ),
+                            image: record.imageProvider != null
+                                ? DecorationImage(image: record.imageProvider!, fit: BoxFit.cover)
+                                : null,
                           ),
                         ),
                       ),

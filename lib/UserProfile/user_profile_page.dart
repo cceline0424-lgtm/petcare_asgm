@@ -2,9 +2,10 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:petcare_asgm/UserProfile/setting.dart';
 import 'package:petcare_asgm/UserProfile/my_appointments_page.dart';
@@ -30,6 +31,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   String _originalEmail = "";
   File? _image;
+  String? _photoUrl;
   final _picker = ImagePicker();
 
   @override
@@ -46,75 +48,111 @@ class _UserProfilePageState extends State<UserProfilePage> {
     super.dispose();
   }
 
+  /// Resolves the profile photo to show: the just-picked local file takes
+  /// priority, otherwise the saved photo path - which is a local on-device
+  /// path for photos saved under the new scheme, or (for accounts that
+  /// still have one) a legacy Firebase Storage network URL.
+  ImageProvider? get _profilePhoto {
+    if (_image != null) return FileImage(_image!);
+    if (_photoUrl == null) return null;
+    return _photoUrl!.startsWith('http') ? NetworkImage(_photoUrl!) : FileImage(File(_photoUrl!));
+  }
+
   Future<void> _loadProfileInfo() async {
-    final pref = await SharedPreferences.getInstance();
+    final authUser = FirebaseAuth.instance.currentUser;
     final currentUser = await AuthService.getLoggedInUsername() ?? widget.username;
     final dbUser = await DatabaseHelper.instance.getUserByUsername(currentUser);
 
+    if (!mounted) return;
     setState(() {
       if (dbUser != null) {
-        _nameCtrl.text = pref.getString('name_$currentUser') ?? dbUser['name'] ?? currentUser;
-        _emailCtrl.text = pref.getString('email_$currentUser') ?? dbUser['email'] ?? "";
+        _nameCtrl.text = dbUser['name'] ?? currentUser;
+
+        // Firebase Auth's own email is the one that actually changes once a
+        // pending "confirm your new email" link is clicked, so it's the
+        // authoritative source here rather than the Firestore copy (which
+        // only updates after that confirmation happens).
+        _emailCtrl.text = authUser?.email ?? dbUser['email'] ?? "";
 
         String rawContact = dbUser['phone'] ?? "";
         if (rawContact.startsWith('+60')) {
           rawContact = rawContact.substring(3);
         }
-        _contactCtrl.text = pref.getString('contact_$currentUser') ?? rawContact;
+        _contactCtrl.text = rawContact;
+        _photoUrl = dbUser['photoUrl'] as String?;
       } else {
-        _nameCtrl.text = pref.getString('name_$currentUser') ?? currentUser;
-        _emailCtrl.text = pref.getString('email_$currentUser') ?? "";
-        _contactCtrl.text = pref.getString('contact_$currentUser') ?? "";
+        _nameCtrl.text = currentUser;
+        _emailCtrl.text = authUser?.email ?? "";
+        _contactCtrl.text = "";
       }
 
+      _image = null;
       _originalEmail = _emailCtrl.text.trim();
     });
-
-    final appDataDir = await getApplicationDocumentsDirectory();
-    final imagePath = '${appDataDir.path}/profile_$currentUser.png';
-    final file = File(imagePath);
-
-    if (await file.exists()) {
-      setState(() {
-        _image = file;
-      });
-    }
   }
 
   Future<void> _performSave() async {
-    final pref = await SharedPreferences.getInstance();
+    final authUser = FirebaseAuth.instance.currentUser;
     final currentUser = await AuthService.getLoggedInUsername() ?? widget.username;
 
     String phoneToSave = _contactCtrl.text.trim();
     String dbPhone = phoneToSave.startsWith('+60') ? phoneToSave : '+60$phoneToSave';
 
+    final newEmail = _emailCtrl.text.trim();
+    final emailChanged = newEmail.isNotEmpty && newEmail != _originalEmail;
+
     try {
       await DatabaseHelper.instance.updateUserProfile(
         currentUser,
         _nameCtrl.text.trim(),
-        _emailCtrl.text.trim(),
+        // Don't write the new email into Firestore yet - it isn't real
+        // until the user confirms it via the link Firebase sends below, so
+        // writing it immediately would break username-based login lookups
+        // in the meantime.
+        emailChanged ? _originalEmail : newEmail,
         dbPhone,
       );
 
-      pref.setString('name_$currentUser', _nameCtrl.text);
-      pref.setString('email_$currentUser', _emailCtrl.text);
-      pref.setString('contact_$currentUser', _contactCtrl.text);
+      await authUser?.updateDisplayName(_nameCtrl.text.trim());
 
-      if (_image != null) {
-        final appDataDir = await getApplicationDocumentsDirectory();
-        final imagePath = '${appDataDir.path}/profile_$currentUser.png';
-        try {
-          await _image!.copy(imagePath);
-        } catch (e) {}
+      if (emailChanged && authUser != null) {
+        // Firebase requires its own re-verification step to change the
+        // actual login email, even though the OTP step already proved
+        // ownership of the new address - this sends that confirmation link.
+        await authUser.verifyBeforeUpdateEmail(newEmail);
+      }
+
+      if (_image != null && authUser != null) {
+        // Saved to this device's own documents folder rather than Firebase
+        // Storage - only Firestore's small 'photoUrl' string is synced to
+        // the cloud, so no billing plan is needed. The profile photo only
+        // ever needs to be visible on the owner's own device anyway.
+        final docsDir = await getApplicationDocumentsDirectory();
+        final profilePhotosDir = Directory('${docsDir.path}/profile_photos');
+        if (!await profilePhotosDir.exists()) {
+          await profilePhotosDir.create(recursive: true);
+        }
+        final ext = _image!.path.contains('.') ? _image!.path.substring(_image!.path.lastIndexOf('.')) : '.jpg';
+        final savedPath = '${profilePhotosDir.path}/${authUser.uid}$ext';
+        await _image!.copy(savedPath);
+
+        await FirebaseFirestore.instance.collection('users').doc(authUser.uid).set(
+          {'photoUrl': savedPath},
+          SetOptions(merge: true),
+        );
+        _photoUrl = savedPath;
       }
 
       setState(() {
-        _originalEmail = _emailCtrl.text.trim();
+        _image = null;
+        if (!emailChanged) _originalEmail = newEmail;
       });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile Info Saved successfully!')),
+          SnackBar(content: Text(emailChanged
+              ? 'Profile saved! Check your new email for a link to confirm the change.'
+              : 'Profile Info Saved successfully!')),
         );
       }
     } catch (e) {
@@ -295,8 +333,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                             CircleAvatar(
                               radius: 40,
                               backgroundColor: Colors.brown,
-                              backgroundImage: _image != null ? FileImage(_image!) : null,
-                              child: _image == null
+                              backgroundImage: _profilePhoto,
+                              child: (_image == null && _photoUrl == null)
                                   ? const Icon(Icons.person, size: 50, color: Colors.white)
                                   : null,
                             ),
@@ -535,8 +573,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
               CircleAvatar(
                 radius: 38,
                 backgroundColor: Colors.brown,
-                backgroundImage: _image != null ? FileImage(_image!) : null,
-                child: _image == null
+                backgroundImage: _profilePhoto,
+                child: (_image == null && _photoUrl == null)
                     ? const Icon(Icons.person, size: 45, color: Colors.white)
                     : null,
               ),

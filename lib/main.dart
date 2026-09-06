@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:petcare_asgm/firebase_options.dart';
 import 'package:petcare_asgm/Home/home_page.dart';
 import 'package:petcare_asgm/UserProfile/user_profile_page.dart';
 import 'package:petcare_asgm/VetClinic/vet_clinic_page.dart';
@@ -20,6 +23,10 @@ final ValueNotifier<int> notificationSignal = ValueNotifier(0);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   final prefs = await SharedPreferences.getInstance();
   isDarkModeNotifier.value = prefs.getBool('dark_mode') ?? false;
@@ -115,106 +122,146 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   bool _hasNewNotifications = false;
 
   Map<String, dynamic>? _upcomingAppointment;
+  bool _hasNewAppt = false;
+  bool _showApptReminder = true;
+
   int _strayPinCount = 0;
   bool _hasNewStrayPins = false;
-  bool _hasNewAppt = false;
+  bool _showStrayAlert = true;
+
+  // The set of stray-pin ids the user has already been alerted about (read
+  // from/written to disk so it survives app restarts) and the ids currently
+  // within 1km, used to work out which of those are still "new".
+  Set<String> _seenStrayPinIds = {};
+  List<String> _nearbyStrayPinIds = [];
+  Position? _cachedPosition;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _strayPinsSub;
 
   @override
   void initState() {
     super.initState();
-    _checkNotifications();
-    notificationSignal.addListener(_checkNotifications);
+    _checkAppointmentNotifications();
+    _initStrayPinWatcher();
+    notificationSignal.addListener(_checkAppointmentNotifications);
   }
 
   @override
   void dispose() {
-    notificationSignal.removeListener(_checkNotifications);
+    notificationSignal.removeListener(_checkAppointmentNotifications);
+    _strayPinsSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _checkNotifications() async {
+  Future<void> _checkAppointmentNotifications() async {
     final prefs = await SharedPreferences.getInstance();
+    _showApptReminder = prefs.getBool('reminder') ?? true;
+    _showStrayAlert = prefs.getBool('stray_alert') ?? true;
 
     final appointments = await AppointmentStorage.getAppointments();
     final upcomingList = appointments
         .where((app) => app['status'] == 'Upcoming' && !isAppointmentPast(app))
         .toList();
 
-    _strayPinCount = await _countNearbyStrayPins(prefs);
-    int lastSeenCount = prefs.getInt('last_seen_stray_count') ?? 0;
-    _hasNewStrayPins = _strayPinCount > lastSeenCount;
+    if (!mounted) return;
+    setState(() {
+      _upcomingAppointment = upcomingList.isNotEmpty ? upcomingList.last : null;
 
-    bool showApptReminder = prefs.getBool('reminder') ?? true;
-    bool showStrayAlert = prefs.getBool('stray_alert') ?? true;
+      String lastSeenApptId = prefs.getString('last_seen_appt_id') ?? '';
+      _hasNewAppt = _upcomingAppointment != null && _upcomingAppointment!['id'] != lastSeenApptId;
 
-    if (mounted) {
-      setState(() {
-        if (upcomingList.isNotEmpty) {
-          _upcomingAppointment = upcomingList.last;
-        } else {
-          _upcomingAppointment = null;
-        }
+      _recomputeBadge();
+    });
+  }
 
-        String lastSeenApptId = prefs.getString('last_seen_appt_id') ?? '';
-        _hasNewAppt = _upcomingAppointment != null && _upcomingAppointment!['id'] != lastSeenApptId;
+  void _recomputeBadge() {
+    _hasNewNotifications =
+        (_hasNewAppt && _showApptReminder) || (_hasNewStrayPins && _showStrayAlert);
+  }
 
-        _hasNewNotifications = false;
+  /// Sets up a live listener on the 'stray_pins' collection so the red dot
+  /// reacts the moment any user (not just this device) reports a stray
+  /// within 1km - no need to switch tabs or relaunch the app first.
+  Future<void> _initStrayPinWatcher() async {
+    final prefs = await SharedPreferences.getInstance();
+    _seenStrayPinIds = (prefs.getStringList('seen_stray_pin_ids') ?? []).toSet();
+    _cachedPosition = await _getCurrentPositionOrNull();
 
-        if (_hasNewAppt && showApptReminder) {
-          _hasNewNotifications = true;
-        }
+    _strayPinsSub = FirebaseFirestore.instance
+        .collection('stray_pins')
+        .snapshots()
+        .listen(_handleStrayPinsSnapshot);
+  }
 
-        if (_hasNewStrayPins && showStrayAlert) {
-          _hasNewNotifications = true;
-        }
-      });
+  Future<Position?> _getCurrentPositionOrNull() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return null;
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 5),
+        ),
+      );
+    } catch (_) {
+      return null;
     }
   }
 
-  /// Counts stray reports within 1km of the user's current location. If a
-  /// location fix can't be obtained (permission denied, GPS off, etc.),
-  /// falls back to counting every report so the alert doesn't just vanish.
-  Future<int> _countNearbyStrayPins(SharedPreferences prefs) async {
-    final List<String>? recordsJson = prefs.getStringList('stray_pins');
-    if (recordsJson == null || recordsJson.isEmpty) return 0;
+  /// Recomputes which stray pins are within 1km of the user every time the
+  /// 'stray_pins' collection changes. A pin only lights up the red dot
+  /// until the user actually opens the notification tray, at which point
+  /// its id is added to [_seenStrayPinIds] (and persisted) so it won't
+  /// re-trigger the dot again on its own - only a genuinely new pin will.
+  /// If a location fix isn't available, every pin counts as nearby so the
+  /// alert never silently disappears.
+  void _handleStrayPinsSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
+    final nearbyIds = <String>[];
 
-    Position? position;
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (serviceEnabled) {
-        LocationPermission permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) {
-          permission = await Geolocator.requestPermission();
-        }
-        if (permission != LocationPermission.denied && permission != LocationPermission.deniedForever) {
-          position = await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.medium,
-              timeLimit: Duration(seconds: 5),
-            ),
-          );
-        }
+    if (_cachedPosition == null) {
+      nearbyIds.addAll(snap.docs.map((d) => d.id));
+    } else {
+      const Distance distanceCalc = Distance();
+      final userLocation = LatLng(_cachedPosition!.latitude, _cachedPosition!.longitude);
+      for (final doc in snap.docs) {
+        try {
+          final data = Map<String, dynamic>.from(doc.data());
+          data['id'] = doc.id;
+          final record = StrayAnimalRecord.fromJson(data);
+          if (distanceCalc(userLocation, record.location) <= 1000) {
+            nearbyIds.add(doc.id);
+          }
+        } catch (_) {}
       }
-    } catch (_) {
-      position = null;
     }
 
-    if (position == null) return recordsJson.length;
+    if (!mounted) return;
+    setState(() {
+      _nearbyStrayPinIds = nearbyIds;
+      _strayPinCount = nearbyIds.length;
+      _hasNewStrayPins = nearbyIds.any((id) => !_seenStrayPinIds.contains(id));
+      _recomputeBadge();
+    });
+  }
 
-    const Distance distanceCalc = Distance();
-    final userLocation = LatLng(position.latitude, position.longitude);
-    int nearbyCount = 0;
+  /// Marks every currently-nearby stray pin as seen, so the red dot won't
+  /// light back up for them - only a pin reported after this point will.
+  Future<void> _markStrayPinsSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    _seenStrayPinIds.addAll(_nearbyStrayPinIds);
+    await prefs.setStringList('seen_stray_pin_ids', _seenStrayPinIds.toList());
 
-    for (final jsonStr in recordsJson) {
-      try {
-        final record = StrayAnimalRecord.fromJson(jsonDecode(jsonStr));
-        if (distanceCalc(userLocation, record.location) <= 1000) {
-          nearbyCount++;
-        }
-      } catch (_) {}
-    }
-
-    return nearbyCount;
+    if (!mounted) return;
+    setState(() {
+      _hasNewStrayPins = false;
+      _recomputeBadge();
+    });
   }
 
   void _showNotificationTray(BuildContext context, bool isDark) async {
@@ -277,7 +324,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(builder: (_) => const MyAppointmentsPage()),
-                          ).then((_) => _checkNotifications());
+                          ).then((_) => _checkAppointmentNotifications());
                         },
                       ),
 
@@ -297,7 +344,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         ),
                         onTap: () {
                           setState(() {
-                            _hasNewStrayPins = false;
                             _currentIndex = 3;
                           });
                           Navigator.pop(context);
@@ -387,9 +433,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     if (_upcomingAppointment != null) {
                       await prefs.setString('last_seen_appt_id', _upcomingAppointment!['id']);
                     }
-                    await prefs.setInt('last_seen_stray_count', _strayPinCount);
+                    await _markStrayPinsSeen();
 
                     setState(() {
+                      _hasNewAppt = false;
                       _hasNewNotifications = false;
                     });
 
@@ -466,7 +513,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 ),
                 onPressed: () {
                   setState(() => _currentIndex = 3);
-                  _checkNotifications();
+                  _checkAppointmentNotifications();
                 },
               ),
               IconButton(

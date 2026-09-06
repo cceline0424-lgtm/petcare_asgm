@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:petcare_asgm/Auth/auth_service.dart';
-import 'package:petcare_asgm/Auth/database_helper.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:petcare_asgm/UserProfile/pet_info_page.dart';
 import 'package:petcare_asgm/VetClinic/vet_clinic_service.dart';
 
@@ -43,7 +41,7 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
   VetClinicService.malaysiaStates.where((s) => s != 'All States').toList();
 
   String? _selectedState;
-  String? _loggedInUsername;
+  String? _uid;
   Timer? _autoSaveDebounce;
 
   @override
@@ -61,62 +59,52 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
     _cityController.addListener(_scheduleAutoSave);
   }
 
-  String _savedProfileKey(String username) => 'adoption_saved_profile_$username';
-
   Future<void> _loadUserProfileData() async {
-    final username = await AuthService.getLoggedInUsername();
-    _loggedInUsername = username;
-    if (username == null) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    _uid = uid;
+    if (uid == null) return;
 
-    final user = await DatabaseHelper.instance.getUserByUsername(username);
-    final prefs = await SharedPreferences.getInstance();
-    final savedJson = prefs.getString(_savedProfileKey(username));
-
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
     if (!mounted) return;
 
+    final data = doc.data();
+    if (data == null) return;
+
     setState(() {
-      if (user != null) {
-        _emailController.text = user['email'] ?? '';
+      _emailController.text = data['email'] ?? '';
 
-        String rawContact = user['phone'] ?? '';
-        if (rawContact.startsWith('+60')) {
-          rawContact = rawContact.substring(3);
-        }
-        _phoneController.text = rawContact;
+      String rawContact = data['phone'] ?? '';
+      if (rawContact.startsWith('+60')) {
+        rawContact = rawContact.substring(3);
       }
+      _phoneController.text = rawContact;
 
-      if (savedJson != null) {
-        try {
-          final saved = jsonDecode(savedJson) as Map<String, dynamic>;
-          _adopterNameController.text = saved['name'] ?? '';
-          _addressLine1Controller.text = saved['addressLine1'] ?? '';
-          _addressLine2Controller.text = saved['addressLine2'] ?? '';
-          _postcodeController.text = saved['postcode'] ?? '';
-          _cityController.text = saved['city'] ?? '';
-          final savedState = saved['state'] as String?;
-          if (savedState != null && _states.contains(savedState)) {
-            _selectedState = savedState;
-          }
-        } catch (_) {
-          // Saved data is corrupted/outdated - just start with blank fields
-          // instead of crashing the form.
+      final saved = data['adoptionProfile'] as Map<String, dynamic>?;
+      if (saved != null) {
+        _adopterNameController.text = saved['name'] ?? '';
+        _addressLine1Controller.text = saved['addressLine1'] ?? '';
+        _addressLine2Controller.text = saved['addressLine2'] ?? '';
+        _postcodeController.text = saved['postcode'] ?? '';
+        _cityController.text = saved['city'] ?? '';
+        final savedState = saved['state'] as String?;
+        if (savedState != null && _states.contains(savedState)) {
+          _selectedState = savedState;
         }
       }
     });
   }
 
-  /// Debounces auto-save so a fast typist doesn't trigger a disk write on
-  /// every single keystroke - it saves ~600ms after the user stops typing.
+  /// Debounces auto-save so a fast typist doesn't trigger a write on every
+  /// single keystroke - it saves ~600ms after the user stops typing.
   void _scheduleAutoSave() {
     _autoSaveDebounce?.cancel();
     _autoSaveDebounce = Timer(const Duration(milliseconds: 600), _persistProfile);
   }
 
   Future<void> _persistProfile() async {
-    final username = _loggedInUsername;
-    if (username == null) return;
+    final uid = _uid;
+    if (uid == null) return;
 
-    final prefs = await SharedPreferences.getInstance();
     final data = {
       'name': _adopterNameController.text.trim(),
       'addressLine1': _addressLine1Controller.text.trim(),
@@ -125,7 +113,11 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
       'postcode': _postcodeController.text.trim(),
       'city': _cityController.text.trim(),
     };
-    await prefs.setString(_savedProfileKey(username), jsonEncode(data));
+
+    await FirebaseFirestore.instance.collection('users').doc(uid).set(
+      {'adoptionProfile': data},
+      SetOptions(merge: true),
+    );
   }
 
   @override
@@ -155,23 +147,21 @@ class _AdoptionFormPageState extends State<AdoptionFormPage> {
       return;
     }
 
-    final username = await AuthService.getLoggedInUsername();
-    final String adoptedPetsKey = 'user_adopted_pets_$username';
+    final uid = _uid ?? FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    List<String> savedPets = prefs.getStringList(adoptedPetsKey) ?? [];
-
-    Map<String, dynamic> newPetRecord = {
+    final petDoc = FirebaseFirestore.instance.collection('pets').doc();
+    await petDoc.set({
+      'id': petDoc.id,
+      'uid': uid,
       'name': widget.petData['name'],
-      'type': widget.petData['type'],
+      'species': widget.petData['type'],
       'breed': widget.petData['breed'],
       'age': widget.petData['age'],
       'gender': widget.petData['gender'],
-      'photoUrl': widget.petData['photoUrl'],
-    };
-
-    savedPets.add(jsonEncode(newPetRecord));
-    await prefs.setStringList(adoptedPetsKey, savedPets);
+      'imagePath': widget.petData['photoUrl'],
+      'isAdopted': true,
+    });
 
     if (!mounted) return;
 

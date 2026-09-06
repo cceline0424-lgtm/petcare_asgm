@@ -1,38 +1,46 @@
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:petcare_asgm/Auth/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AppointmentStorage {
+  static CollectionReference<Map<String, dynamic>> get _appointments =>
+      FirebaseFirestore.instance.collection('appointments');
 
-  static Future<String?> _getStorageKey() async {
-    final username = await AuthService.getLoggedInUsername();
-    if (username == null) return null;
-    return 'user_appointments_$username';
-  }
+  static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
   static Future<void> saveAppointment(Map<String, dynamic> appointmentData) async {
-    final key = await _getStorageKey();
-    if (key == null) return;
+    final uid = _uid;
+    if (uid == null) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> appointmentsJson = prefs.getStringList(key) ?? [];
-
-    appointmentData['id'] = DateTime.now().millisecondsSinceEpoch.toString();
+    final docRef = _appointments.doc();
+    appointmentData['id'] = docRef.id;
     appointmentData['status'] = 'Upcoming';
 
-    appointmentsJson.add(jsonEncode(appointmentData));
-    await prefs.setStringList(key, appointmentsJson);
+    await docRef.set({
+      ...appointmentData,
+      'uid': uid,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
   }
 
   static Future<List<Map<String, dynamic>>> getAppointments() async {
-    final key = await _getStorageKey();
-    if (key == null) return [];
+    final uid = _uid;
+    if (uid == null) return [];
 
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> appointmentsJson = prefs.getStringList(key) ?? [];
+    final snap = await _appointments.where('uid', isEqualTo: uid).get();
 
-    return appointmentsJson.map((str) {
-      return Map<String, dynamic>.from(jsonDecode(str));
+    final docs = snap.docs.toList()
+      ..sort((a, b) {
+        final aTime = a.data()['createdAt'] as Timestamp?;
+        final bTime = b.data()['createdAt'] as Timestamp?;
+        if (aTime == null || bTime == null) return 0;
+        return aTime.compareTo(bTime);
+      });
+
+    return docs.map((doc) {
+      final data = Map<String, dynamic>.from(doc.data());
+      data.remove('uid');
+      data.remove('createdAt');
+      return data;
     }).toList();
   }
 
@@ -41,21 +49,6 @@ class AppointmentStorage {
   }
 
   static Future<void> updateAppointmentStatus(String id, String status) async {
-    final key = await _getStorageKey();
-    if (key == null) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> appointmentsJson = prefs.getStringList(key) ?? [];
-
-    List<String> updatedList = [];
-    for (String jsonStr in appointmentsJson) {
-      final Map<String, dynamic> data = jsonDecode(jsonStr);
-      if (data['id'] == id) {
-        data['status'] = status;
-      }
-      updatedList.add(jsonEncode(data));
-    }
-
-    await prefs.setStringList(key, updatedList);
+    await _appointments.doc(id).update({'status': status});
   }
 }

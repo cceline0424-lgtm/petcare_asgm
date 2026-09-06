@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'database_helper.dart';
 import 'email_service.dart';
 import 'login_page.dart';
@@ -219,21 +220,44 @@ class _SignUpPageState extends State<SignUpPage> {
 
     setState(() => _isLoading = true);
 
+    final username = _usernameController.text.trim();
+    final email = _emailController.text.trim();
+    final phone = '$_phoneCountryCode${_phoneController.text.trim()}';
+
+    UserCredential? credential;
     try {
-      await DatabaseHelper.instance.insertUser(
-        name: _usernameController.text.trim(),
-        username: _usernameController.text.trim(),
-        email: _emailController.text.trim(),
+      credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
         password: _passwordController.text,
-        phone: '$_phoneCountryCode${_phoneController.text.trim()}',
+      );
+
+      await credential.user?.updateDisplayName(username);
+
+      await DatabaseHelper.instance.createUserProfile(
+        uid: credential.user!.uid,
+        name: username,
+        username: username,
+        email: email,
+        phone: phone,
       );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account created! Please log in.')));
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginPage()));
-    } catch (e) {
+    } on FirebaseAuthException catch (e) {
+      await credential?.user?.delete();
+
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: Username, Email, or Phone is already in use.')));
+      String message = 'Could not create account. Please try again.';
+      if (e.code == 'email-already-in-use') message = 'That email is already registered.';
+      if (e.code == 'weak-password') message = 'Password is too weak.';
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      await credential?.user?.delete();
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: Username or Phone is already in use.')));
+      }
     }
   }
 

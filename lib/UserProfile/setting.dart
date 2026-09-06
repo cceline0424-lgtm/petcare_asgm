@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../main.dart';
-import 'package:petcare_asgm/Auth/auth_service.dart';
-import 'package:petcare_asgm/Auth/database_helper.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -188,13 +187,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       return;
                     }
 
-                    final username = await AuthService.getLoggedInUsername();
-                    if (username == null) return;
+                    final user = FirebaseAuth.instance.currentUser;
+                    if (user == null || user.email == null) return;
 
-                    final user = await DatabaseHelper.instance.getUserByUsername(username);
-                    if (user == null) return;
-
-                    if (user['password'] != currentPass) {
+                    try {
+                      final cred = EmailAuthProvider.credential(email: user.email!, password: currentPass);
+                      await user.reauthenticateWithCredential(cred);
+                    } on FirebaseAuthException catch (_) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Current password is incorrect.')),
@@ -203,7 +202,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       return;
                     }
 
-                    await DatabaseHelper.instance.updatePasswordByEmail(user['email'], newPass);
+                    try {
+                      await user.updatePassword(newPass);
+                    } on FirebaseAuthException catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(e.message ?? 'Could not update password. Please try again.')),
+                        );
+                      }
+                      return;
+                    }
 
                     if (context.mounted) {
                       Navigator.pop(context);
